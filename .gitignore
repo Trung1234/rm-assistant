@@ -3,3 +3,4 @@ obj/
 audit/
 *.user
 appsettings.Development.json
+.run/

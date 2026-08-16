@@ -1,0 +1,58 @@
+@using Microsoft.Extensions.Options
+@using BankAgent.Api.Auth
+@inject IOptions<AuthOptions> AuthOptions
+@inject IRmIdentityResolver IdentityResolver
+@{
+    var identity = IdentityResolver.Resolve(ViewContext.HttpContext);
+    var devMode = AuthOptions.Value.AllowDevHeaders;
+}
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · Bank CRM Agent</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" asp-page="/Index">
+            <span class="brand-mark">RM</span>
+            <span>Bank CRM Agent</span>
+        </a>
+
+        <div class="topbar-right">
+            @if (devMode)
+            {
+                <span class="badge badge-warn" title="Danh tính đang lấy từ cookie/header dev, không phải từ access token">DEV IDENTITY</span>
+            }
+            @if (identity is not null)
+            {
+                <span class="whoami">
+                    <strong>@identity.RmId</strong>
+                    <span class="muted">@identity.TenantId</span>
+                    <span class="muted">· @(identity.PortfolioIds.Count) danh mục</span>
+                </span>
+                <form method="post" asp-page="/SignIn" asp-page-handler="SignOut" class="inline">
+                    <button type="submit" class="btn btn-quiet">Đổi RM</button>
+                </form>
+            }
+            else
+            {
+                <a class="btn btn-quiet" asp-page="/SignIn">Chọn RM</a>
+            }
+        </div>
+    </header>
+
+    <main class="shell">
+        @RenderBody()
+    </main>
+
+    <footer class="footer">
+        <span>Bản nháp và mọi hành động gửi/ghi đều cần RM phê duyệt. Dữ liệu cá nhân hiển thị ở dạng token.</span>
+    </footer>
+
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

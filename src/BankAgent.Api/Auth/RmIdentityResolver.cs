@@ -44,13 +44,17 @@ public interface IRmIdentityResolver
 
 public sealed class RmIdentityResolver(IOptions<AuthOptions> options) : IRmIdentityResolver
 {
+    public const string DevRmCookie = "dev_rm_id";
+    public const string DevTenantCookie = "dev_tenant_id";
+    public const string DevRolesCookie = "dev_roles";
+
     private readonly AuthOptions _options = options.Value;
 
     public RmIdentity? Resolve(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var identity = ResolveFromClaims(context.User) ?? ResolveFromDevHeaders(context);
+        var identity = ResolveFromClaims(context.User) ?? ResolveFromDevContext(context);
         if (identity is null)
         {
             return null;
@@ -89,22 +93,29 @@ public sealed class RmIdentityResolver(IOptions<AuthOptions> options) : IRmIdent
         };
     }
 
-    private RmIdentity? ResolveFromDevHeaders(HttpContext context)
+    /// <summary>
+    /// Danh tính dev: header cho curl/Postman, cookie cho giao diện Razor Pages.
+    /// Cả hai đi qua ĐÚNG hàm này thay vì UI tự dựng danh tính riêng — nhân đôi logic
+    /// định danh là cách chắc chắn nhất để hai đường dẫn lệch nhau về quyền.
+    /// Cả hai đều bị khoá sau <see cref="AuthOptions.AllowDevHeaders"/>, và cờ đó không
+    /// bật được ngoài môi trường Development (Program.cs).
+    /// </summary>
+    private RmIdentity? ResolveFromDevContext(HttpContext context)
     {
         if (!_options.AllowDevHeaders)
         {
             return null;
         }
 
-        var rmId = context.Request.Headers["X-Dev-Rm-Id"].ToString();
-        var tenantId = context.Request.Headers["X-Dev-Tenant-Id"].ToString();
+        var rmId = Value(context, "X-Dev-Rm-Id", DevRmCookie);
+        var tenantId = Value(context, "X-Dev-Tenant-Id", DevTenantCookie);
 
         if (string.IsNullOrWhiteSpace(rmId) || string.IsNullOrWhiteSpace(tenantId))
         {
             return null;
         }
 
-        var roles = context.Request.Headers["X-Dev-Roles"].ToString();
+        var roles = Value(context, "X-Dev-Roles", DevRolesCookie);
 
         return new RmIdentity
         {
@@ -115,5 +126,14 @@ public sealed class RmIdentityResolver(IOptions<AuthOptions> options) : IRmIdent
                 string.IsNullOrWhiteSpace(roles) ? [RmRoles.RelationshipManager] : roles.Split(','),
                 StringComparer.Ordinal),
         };
+    }
+
+    /// <summary>Header thắng cookie: curl trong cùng trình duyệt vẫn ghi đè được để thử ca khác.</summary>
+    private static string Value(HttpContext context, string headerName, string cookieName)
+    {
+        var header = context.Request.Headers[headerName].ToString();
+        return string.IsNullOrWhiteSpace(header)
+            ? context.Request.Cookies[cookieName] ?? string.Empty
+            : header;
     }
 }

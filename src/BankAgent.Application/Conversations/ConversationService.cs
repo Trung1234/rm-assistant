@@ -33,6 +33,7 @@ public sealed class ConversationService(
     IConversationSessionStore sessionStore,
     IAgentRunner agentRunner,
     IApprovalService approvalService,
+    IConversationTranscriptStore transcripts,
     IBusinessAuditLog audit,
     IPiiGuard piiGuard,
     AgentTelemetry telemetry,
@@ -84,6 +85,19 @@ public sealed class ConversationService(
             inputDigest: AuditDigest.Of(request.Message),
             ct: ct).ConfigureAwait(false);
 
+        await AppendTranscriptAsync(
+            conversationId,
+            identity,
+            new TranscriptEntry
+            {
+                EntryId = NewEntryId(),
+                Role = TranscriptRole.Rm,
+                Text = request.Message,
+                At = now,
+                TraceId = traceId,
+            },
+            ct).ConfigureAwait(false);
+
         using var runTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         runTimeout.CancelAfter(TimeSpan.FromSeconds(_options.AgentRunTimeoutSeconds));
 
@@ -117,7 +131,13 @@ public sealed class ConversationService(
                 durationMs: stopwatch.ElapsedMilliseconds,
                 ct: ct).ConfigureAwait(false);
 
-            return Failed(conversationId, traceId, ErrorCodes.DownstreamTimeout, "Yêu cầu quá thời gian xử lý. Thử lại hoặc thu hẹp câu hỏi.");
+            return await FailAndRecordAsync(
+                conversationId,
+                identity,
+                traceId,
+                ErrorCodes.DownstreamTimeout,
+                "Yêu cầu quá thời gian xử lý. Thử lại hoặc thu hẹp câu hỏi.",
+                ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -134,7 +154,13 @@ public sealed class ConversationService(
                 durationMs: stopwatch.ElapsedMilliseconds,
                 ct: ct).ConfigureAwait(false);
 
-            return Failed(conversationId, traceId, ErrorCodes.DownstreamUnavailable, "Không xử lý được yêu cầu. Vui lòng thử lại.");
+            return await FailAndRecordAsync(
+                conversationId,
+                identity,
+                traceId,
+                ErrorCodes.DownstreamUnavailable,
+                "Không xử lý được yêu cầu. Vui lòng thử lại.",
+                ct).ConfigureAwait(false);
         }
 
         var updatedSession = result.UpdatedSession;
@@ -180,7 +206,13 @@ public sealed class ConversationService(
                 errorCode: ErrorCodes.PiiLeakBlocked,
                 ct: ct).ConfigureAwait(false);
 
-            return Failed(conversationId, traceId, ErrorCodes.PiiLeakBlocked, "Không thể hiển thị kết quả này.");
+            return await FailAndRecordAsync(
+                conversationId,
+                identity,
+                traceId,
+                ErrorCodes.PiiLeakBlocked,
+                "Không thể hiển thị kết quả này.",
+                ct).ConfigureAwait(false);
         }
 
         updatedSession = updatedSession with
@@ -209,7 +241,7 @@ public sealed class ConversationService(
             durationMs: stopwatch.ElapsedMilliseconds,
             ct: ct).ConfigureAwait(false);
 
-        return new SendMessageResponse
+        var response = new SendMessageResponse
         {
             ConversationId = conversationId,
             MessageId = "msg_" + Guid.NewGuid().ToString("n"),
@@ -220,6 +252,25 @@ public sealed class ConversationService(
             Error = result.Error,
             TraceId = traceId,
         };
+
+        await AppendTranscriptAsync(
+            conversationId,
+            identity,
+            new TranscriptEntry
+            {
+                EntryId = NewEntryId(),
+                Role = TranscriptRole.Agent,
+                Text = answer ?? string.Empty,
+                At = timeProvider.GetUtcNow(),
+                Sources = response.Sources,
+                Approval = approvalPrompt,
+                Receipt = result.Receipt,
+                Error = response.Error,
+                TraceId = traceId,
+            },
+            ct).ConfigureAwait(false);
+
+        return response;
     }
 
     public async Task<ApprovalDecisionResponse> DecideApprovalAsync(
@@ -290,6 +341,42 @@ public sealed class ConversationService(
 
         // Trạng thái cuối lấy từ store: workflow đã ghi Executed/Failed sau khi thực thi.
         var settledApproval = await approvalService.GetForActorAsync(approvalId, identity, ct).ConfigureAwait(false);
+
+        // Quyết định của RM và kết quả thực thi phải nằm trong transcript, không chỉ trong
+        // audit: đây là hai dòng mà chính RM cần đọc lại khi rà soát việc mình đã làm.
+        await AppendTranscriptAsync(
+            outcome.Approval.ConversationId,
+            identity,
+            new TranscriptEntry
+            {
+                EntryId = NewEntryId(),
+                Role = TranscriptRole.System,
+                Text = outcome.IsApproved
+                    ? $"RM đã phê duyệt hành động '{outcome.Approval.Action}'."
+                    : $"RM đã từ chối hành động '{outcome.Approval.Action}'.",
+                At = timeProvider.GetUtcNow(),
+                Receipt = settledApproval?.Receipt ?? runResult.Receipt,
+                Error = runResult.Error,
+                TraceId = traceId,
+            },
+            ct).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(runResult.AnswerText))
+        {
+            await AppendTranscriptAsync(
+                outcome.Approval.ConversationId,
+                identity,
+                new TranscriptEntry
+                {
+                    EntryId = NewEntryId(),
+                    Role = TranscriptRole.Agent,
+                    Text = runResult.AnswerText,
+                    At = timeProvider.GetUtcNow(),
+                    Sources = runResult.Sources,
+                    TraceId = traceId,
+                },
+                ct).ConfigureAwait(false);
+        }
 
         return new ApprovalDecisionResponse
         {
@@ -366,6 +453,47 @@ public sealed class ConversationService(
 
         return created;
     }
+
+    /// <summary>
+    /// Ghi lỗi vào transcript rồi mới trả về. Dùng cho các đường lỗi xảy ra SAU khi câu hỏi
+    /// của RM đã vào transcript — nếu không, giao diện sẽ hiện câu hỏi treo lơ lửng
+    /// không có phản hồi nào và RM không biết chuyện gì đã xảy ra.
+    /// </summary>
+    private async Task<SendMessageResponse> FailAndRecordAsync(
+        string conversationId,
+        RmIdentity identity,
+        string traceId,
+        string code,
+        string message,
+        CancellationToken ct)
+    {
+        var response = Failed(conversationId, traceId, code, message);
+
+        await AppendTranscriptAsync(
+            conversationId,
+            identity,
+            new TranscriptEntry
+            {
+                EntryId = NewEntryId(),
+                Role = TranscriptRole.System,
+                Text = message,
+                At = timeProvider.GetUtcNow(),
+                Error = response.Error,
+                TraceId = traceId,
+            },
+            ct).ConfigureAwait(false);
+
+        return response;
+    }
+
+    private Task AppendTranscriptAsync(
+        string conversationId,
+        RmIdentity identity,
+        TranscriptEntry entry,
+        CancellationToken ct) =>
+        transcripts.AppendAsync(conversationId, identity.TenantId, identity.RmId, entry, ct);
+
+    private static string NewEntryId() => "ent_" + Guid.NewGuid().ToString("n");
 
     private SendMessageResponse Failed(string conversationId, string traceId, string code, string message) => new()
     {

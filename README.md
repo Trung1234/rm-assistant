@@ -58,7 +58,7 @@ flowchart TB
 
     subgraph HOST["Agent Host — rm-assistant :5080"]
         direction TB
-        API["BankAgent.Api<br/>REST · auth · OTel · health"]
+        API["BankAgent.Api<br/>Razor Pages · REST · auth · OTel"]
         AGENT["BankAgent.Agent<br/>MAF · MCP client · tools · middleware"]
         FLOW["BankAgent.Workflows<br/>thực thi ghi xác định · idempotency"]
         APP["BankAgent.Application<br/>hội thoại · approval · draft · session"]
@@ -82,7 +82,7 @@ flowchart TB
         TOOLS -.->|tokenize| VAULT
     end
 
-    RM -->|HTTPS| API
+    RM -->|"HTTPS · HTML render phía server"| API
     AGENT -->|"MCP Streamable HTTP<br/>X-Session-Id · X-Rm-Id"| TOOLS
     FLOW -->|"POST /vault/resolve<br/>X-Api-Key · host-to-server"| VAULT
 
@@ -168,25 +168,119 @@ sequenceDiagram
 
 ## 3. Hướng dẫn chạy
 
+### 3.0 Chạy nhanh — một lệnh
+
+Hệ thống gồm **hai tiến trình**: MCP Server (`:5026`) và Agent host (`:5080`). Script này dựng cả hai:
+
+```bash
+cd rm-assistant
+./scripts/run-all.sh
+```
+
+```
+▶ Kiểm tra môi trường
+  .NET SDK 10.0.302
+  MCP Server: /Users/…/bankassist-mcp
+  Khoá MCP: đã có
+
+▶ Build
+    0 Error(s)
+
+Time Elapsed 00:00:00.71
+
+▶ Khởi động MCP Server
+  MCP Server sẵn sàng: http://localhost:5026
+
+▶ Khởi động Agent host
+  Agent host sẵn sàng: http://localhost:5080
+
+▶ Sẵn sàng
+  Giao diện RM : http://localhost:5080
+  REST API     : http://localhost:5080/api/conversations/{id}/messages
+  MCP Server   : http://localhost:5026/mcp
+  Tri thức     : {"status":"ok","knowledgeChunks":6}
+
+  Log   : .run/agent.log · .run/mcp.log
+  Dừng  : scripts/stop-all.sh
+```
+
+Mở <http://localhost:5080/> rồi chọn RM. Dừng:
+
+```bash
+./scripts/stop-all.sh
+```
+
+Script làm đúng những việc dễ quên khi làm tay:
+
+| Việc | Vì sao |
+|---|---|
+| Kiểm tra khoá MCP trước khi chạy | Thiếu khoá thì MCP Server tự tắt, và lý do chỉ nằm trong log |
+| Chờ `/health` thay vì `sleep` cố định | Máy chậm không hỏng, máy nhanh không phải chờ thừa |
+| In log khi một dịch vụ chết lúc khởi động | Không phải đi mò `.run/*.log` |
+| Dùng lại dịch vụ đã chạy ở cùng cổng | Không dựng tiến trình thứ hai tranh cổng |
+| Dừng theo **cây tiến trình** | `dotnet run` chạy app như tiến trình con; giết mỗi tiến trình cha sẽ để lại app giữ cổng |
+
+Biến môi trường có thể ghi đè: `MCP_DIR`, `MCP_URL`, `AGENT_URL`, `WAIT_SECONDS`.
+
+```bash
+MCP_DIR=/duong/dan/khac/bankassist-mcp ./scripts/run-all.sh
+```
+
+> Script **không ghi gì vào repo `bankassist-mcp`**. Thiếu khoá thì nó in sẵn một cặp khoá
+> ngẫu nhiên kèm đường dẫn file để bạn tự tạo — secret của dự án khác thì để dự án đó giữ.
+
+Các mục 3.1–3.10 bên dưới là bản chi tiết của đúng quy trình này, dùng khi cần chạy tay
+từng phần hoặc khi có gì đó không đúng.
+
 ### 3.1 Yêu cầu
 
 | Thành phần | Kiểm tra | Ghi chú |
 |---|---|---|
 | .NET 10 SDK | `dotnet --version` → `10.x` | bắt buộc |
 | `bankassist-mcp` | thư mục cạnh repo này | cần cho tool đọc CRM |
-| Azure OpenAI | endpoint + deployment | cần cho vòng ReAct; thiếu thì chỉ chạy được health/auth |
+| Azure OpenAI | endpoint + deployment | cần cho vòng ReAct; thiếu thì chỉ chạy được giao diện, health và auth |
+
+Sơ đồ cái gì nói chuyện với cái gì khi đã chạy đủ:
+
+```mermaid
+flowchart LR
+    B["Trình duyệt<br/>RM"]
+    A["Agent host<br/>:5080<br/>Razor Pages + REST"]
+    M["MCP Server<br/>:5026<br/>bankassist-mcp"]
+    O["Azure OpenAI<br/>deployment"]
+    K[("knowledge/*.json<br/>6 chunk")]
+    L[("audit-*.jsonl")]
+
+    B -->|HTTP| A
+    A -->|"MCP Streamable HTTP"| M
+    A -->|"/vault/resolve"| M
+    A -->|"HTTPS"| O
+    A --- K
+    A --- L
+
+    style O fill:#fff4e6,stroke:#a76,color:#123
+```
+
+Thiếu **Azure OpenAI** thì giao diện vẫn mở được và mọi kiểm soát vẫn chạy, nhưng mỗi câu hỏi
+kết thúc bằng `DOWNSTREAM_UNAVAILABLE`. Thiếu **MCP Server** thì agent vẫn trả lời được bằng
+tool cục bộ nhưng không có dữ liệu CRM — và nó phải nói rõ điều đó thay vì bịa.
 
 ### 3.2 Build và test trước
 
 ```bash
 cd rm-assistant
 dotnet build BankCrmAgent.slnx     # kỳ vọng: Build succeeded, 0 warning
-dotnet test                        # kỳ vọng: Passed! 57 test
+dotnet test                        # kỳ vọng: Passed! 64 test
 ```
 
 Bước này không cần MCP Server lẫn model — nếu nó hỏng thì vấn đề nằm ở máy, không phải ở cấu hình.
 
 ### 3.3 Bước 1 — chạy MCP Server
+
+> Chạy tay cần **hai cửa sổ terminal**: MCP Server ở cửa sổ thứ nhất, Agent host ở cửa sổ thứ hai.
+> `./scripts/run-all.sh` (mục 3.0) làm cả hai trong một lệnh.
+
+Terminal 1:
 
 ```bash
 cd ../bankassist-mcp
@@ -257,6 +351,8 @@ Production: bỏ `AllowDevHeaders`, đặt `Auth:Authority` + `Auth:Audience` đ
 
 ### 3.5 Bước 3 — chạy agent host
 
+Terminal 2:
+
 ```bash
 cd rm-assistant
 dotnet run --project src/BankAgent.Api        # http://localhost:5080
@@ -285,7 +381,38 @@ info: BankAgent.Agent.Mcp.McpToolProvider[0]
 
 Dòng thứ nhất là allowlist phía host đang làm việc: MCP Server publish gì cũng được, chỉ tool nằm trong policy mới đến được model.
 
-### 3.6 Bước 4 — gọi thử luồng đọc
+### 3.6 Bước 4 — mở giao diện
+
+Mở **<http://localhost:5080/>**. Không có danh tính thì trang tự chuyển sang `/SignIn`.
+
+Ở dev, `/SignIn` **không xác thực gì cả** — nó chỉ ghi mã RM và tenant vào cookie để thử ứng dụng.
+Nó liệt kê sẵn các RM có trong `Auth:RmPortfolios` kèm danh mục của từng người, nên chọn hai RM
+khác nhau rồi hỏi cùng một câu là thấy ngay giới hạn danh mục hoạt động.
+
+Màn hình hội thoại gồm:
+
+| Khu vực | Nội dung |
+|---|---|
+| Cột trái | Hội thoại gần đây của **chính RM đó**, nút tạo hội thoại mới, vài câu hỏi mẫu |
+| Bong bóng tin | Câu hỏi của RM và câu trả lời của agent, kèm `traceId` để đối chiếu audit |
+| Khối nguồn | Danh sách citation kèm `documentId@version#section` và mốc `dataAsOf` |
+| Thẻ phê duyệt | Preview đã che PII, thay đổi dự kiến, rủi ro, hạn, hash payload, nút Phê duyệt / Từ chối |
+| Thẻ receipt | Mã bản ghi, mã receipt và thời điểm sau khi hành động đã thực thi |
+
+Vài điểm về thiết kế trang này, vì chúng là quyết định bảo mật chứ không phải quyết định giao diện:
+
+- **Render phía server.** Trình duyệt không bao giờ giữ access token, khoá MCP hay khoá vault.
+- **Trang gọi thẳng `IConversationService` trong cùng tiến trình**, không gọi vòng qua REST API của
+  chính nó. Đi vòng qua HTTP sẽ phải tự đính kèm danh tính thêm một lần nữa, và mỗi chỗ phải tự
+  đính kèm danh tính là một chỗ có thể đính sai.
+- **Danh tính đi qua đúng `IRmIdentityResolver` mà REST API dùng** — cookie dev chỉ là một nguồn
+  đầu vào nữa của cùng hàm đó, không phải một đường phân quyền song song.
+- **Nút Phê duyệt gửi kèm `payloadHash` đã render.** Nếu payload đổi giữa lúc hiển thị và lúc bấm,
+  server từ chối (FR-023) — hash không phải để trang trí.
+- Antiforgery bật mặc định, CSP `script-src 'self'` + `frame-ancestors 'none'`, mọi nội dung
+  HTML-encode. Trang vẫn dùng được đầy đủ khi tắt JavaScript.
+
+### 3.7 Bước 5 — gọi thử luồng đọc bằng API
 
 ```bash
 curl -s -X POST http://localhost:5080/api/conversations/conv-001/messages \
@@ -311,7 +438,7 @@ Phản hồi:
 
 Bỏ hai header `X-Dev-*` → `401`. Đó là kiểm chứng nhanh nhất rằng danh tính không đến từ body.
 
-### 3.7 Bước 5 — thử luồng phê duyệt
+### 3.8 Bước 6 — thử luồng phê duyệt bằng API
 
 ```bash
 # 1. Yêu cầu một hành động ghi
@@ -357,7 +484,7 @@ Vài ca đáng thử tay:
 | Duyệt lại lần hai | `409` · `IDEMPOTENCY_CONFLICT` |
 | `decision: "reject"` | `200`, trạng thái `Rejected`, không thực thi |
 
-### 3.8 Kiểm tra audit
+### 3.9 Kiểm tra audit
 
 ```bash
 tail -f src/BankAgent.Api/bin/Debug/net10.0/audit/audit-$(date +%Y%m%d).jsonl
@@ -384,7 +511,7 @@ jq -r 'select(.traceId=="<traceId>") | "\(.occurredAt) \(.eventType) \(.outcome)
   src/BankAgent.Api/bin/Debug/net10.0/audit/*.jsonl
 ```
 
-### 3.9 Khi có gì đó không chạy
+### 3.10 Khi có gì đó không chạy
 
 | Triệu chứng | Nguyên nhân | Xử lý |
 |---|---|---|
@@ -395,6 +522,8 @@ jq -r 'select(.traceId=="<traceId>") | "\(.occurredAt) \(.eventType) \(.outcome)
 | `knowledgeChunks: 0` | Checksum lệch hoặc thiếu thư mục `knowledge/` | Log nêu rõ chunk nào lệch. Sửa nội dung thì phải tính lại `checksum` |
 | `send_email` trả `PII_TOKEN_INVALID` | `bankassist-mcp` chưa có `/vault/resolve` (task T-16 bên đó) | Xem mục 5 |
 | `FORBIDDEN_PORTFOLIO` với khách hợp lệ | Khách chưa có trong `Authorization:CustomerPortfolioMap` | Fail closed có chủ đích. Thêm ánh xạ ở bước 3.4 |
+| `Address already in use` ở cổng 5080/5026 | Lần chạy trước còn tiến trình mồ côi | `./scripts/stop-all.sh` — nó dọn cả tiến trình không có pid file |
+| `run-all.sh` báo dịch vụ không phản hồi | Xem 20 dòng log nó in ra, hoặc `.run/agent.log` / `.run/mcp.log` | Thường là thiếu cấu hình ở bước 3.4 |
 
 ---
 
@@ -409,14 +538,30 @@ jq -r 'select(.traceId=="<traceId>") | "\(.occurredAt) \(.eventType) \(.outcome)
 | 4 | PII guard phía host + host-only resolve client | ✅ |
 | 5 | Draft, payload hash, approval, idempotent write | ✅ |
 | 6 | Eval 20+ golden case, load/chaos test | ⬜ chưa làm |
+| — | Giao diện RM bằng Razor Pages | ✅ (auth production còn thiếu, xem §5) |
 
 ### Đã kiểm chứng bằng chạy thật
 
-- Build sạch, **57/57 unit test pass**.
+Phần hạ tầng:
+
+- Build sạch, **64/64 unit test pass**.
 - API khởi động, nạp 6 chunk tri thức, checksum khớp.
 - Kết nối MCP Server thật: liệt kê 3 tool, allowlist loại `ping`, nạp 2/3.
-- Request không có danh tính → `401`.
 - Audit ghi `CONVERSATION_STARTED` → `AGENT_RUN_STARTED` với `pii: tokenized`.
+
+Phần giao diện, chạy thật trên trình duyệt:
+
+- Chưa có danh tính → `/` chuyển sang `/SignIn`; API không có header → `401`.
+- Sau khi chọn RM: thanh trên hiện đúng `RM007 · tenant-a · 1 danh mục`, cột trái hiện hội thoại gần đây.
+- Gửi câu hỏi → PRG redirect → transcript hiện đúng lượt của RM và lượt phản hồi kèm `traceId`.
+- Lỗi hạ tầng hiện thành mã lỗi có cấu trúc (`DOWNSTREAM_UNAVAILABLE`) chứ không phải trang trắng.
+- **Cô lập giữa RM**: gửi một chuỗi đánh dấu bằng RM007 rồi mở đúng hội thoại đó bằng RM002 →
+  0 dòng transcript, 0 mục trong danh sách gần đây, chuỗi đánh dấu không xuất hiện.
+- POST thiếu antiforgery token → `400`.
+- Gửi `<script>alert("xss")</script><img src=x onerror=alert(1)>` → hiển thị nguyên văn dưới dạng
+  chữ, không có thẻ `<script>` nào trong HTML trả về.
+- Header phản hồi có `Content-Security-Policy` (`script-src 'self'`, `frame-ancestors 'none'`)
+  và `X-Content-Type-Options: nosniff`.
 
 ---
 
@@ -433,17 +578,39 @@ Toàn bộ phần **sau** khi có approval — hash, hạn, quyền, idempotency
 
 `bankassist-mcp` cũng chưa có `/vault/resolve`, nên `send_email` sẽ dừng ở `PII_TOKEN_INVALID` cho tới khi endpoint đó tồn tại.
 
+### Giao diện: thiếu xác thực cho production
+
+Đây là khoảng trống lớn nhất còn lại và cần nói rõ:
+
+**Giao diện hiện chỉ đăng nhập được ở chế độ dev.** REST API đã có JWT Bearer thật
+(`Auth:Authority` + `Auth:Audience`), nhưng trình duyệt không tự lấy được bearer token — luồng
+đăng nhập cho người dùng cần **OpenID Connect + cookie authentication** với Microsoft Entra ID,
+và phần đó **chưa được cài**. Hệ quả cụ thể:
+
+- Tắt `Auth:AllowDevHeaders` thì trang `/SignIn` báo "cần đăng nhập" và giao diện không dùng được;
+  chỉ REST API còn hoạt động.
+- Việc này **không** làm yếu chế độ dev: `AllowDevHeaders` vẫn không bật được ngoài `Development`
+  (app từ chối khởi động), nên không có đường nào chạy giao diện dev trên môi trường thật.
+
+Cần làm trước khi có người dùng thật: thêm `AddAuthentication().AddMicrosoftIdentityWebApp(...)`,
+bắt buộc `[Authorize]` trên các Razor Page, và bỏ hẳn `/SignIn`.
+
+Ngoài ra giao diện chưa có streaming — mỗi lượt là một lần POST chờ đến khi agent trả lời xong.
+Với đích P95 5–15 giây của `NFR-001/002` thì chấp nhận được ở MVP, nhưng
+`RunStreamingAsync` của MAF là bước cải thiện rõ ràng tiếp theo.
+
 ---
 
 ## 6. Test
 
 ```bash
-dotnet test                                            # 57 test
+dotnet test                                            # 64 test
 dotnet test --filter FullyQualifiedName~ApprovalGate    # cổng phê duyệt
 dotnet test --filter FullyQualifiedName~WriteWorkflow   # idempotency, hash, hạn
 dotnet test --filter FullyQualifiedName~Security        # PII, portfolio, session
 dotnet test --filter FullyQualifiedName~Rag             # citation, abstain, injection
 dotnet test --filter FullyQualifiedName~ToolPolicy      # allowlist, vai trò
+dotnet test --filter FullyQualifiedName~Transcript      # cô lập transcript giữa các RM
 ```
 
 Ánh xạ sang golden case của spec §21.2:
@@ -459,6 +626,7 @@ dotnet test --filter FullyQualifiedName~ToolPolicy      # allowlist, vai trò
 | 13 — retry cùng idempotency key → một tác động | `WriteWorkflowTests` |
 | 14 — token khác tenant → fail + audit | `ApprovalGateTests` |
 | 15, 16 — PII thô không lọt ra model/log | `SecurityBoundaryTests` |
+| — cô lập hội thoại giữa các RM ở tầng hiển thị | `TranscriptStoreTests` |
 | 19 — vòng tool vượt 3 → dừng an toàn | `ToolPolicyTests` + [ToolInvocationMiddleware.cs:56](src/BankAgent.Agent/Middleware/ToolInvocationMiddleware.cs#L56) |
 
 Còn thiếu để đủ 20 case: 1, 3, 9, 17, 18, 20 — cần model thật hoặc test tích hợp (Phase 6).
@@ -474,6 +642,8 @@ Còn thiếu để đủ 20 case: 1, 3, 9, 17, 18, 20 — cần model thật ho�
 | `Authorization:CustomerPortfolioMap` | config tĩnh | truy vấn hệ thống phân quyền |
 | RAG | lexical scoring | hybrid keyword + vector (§10.3) |
 | Kênh gửi email/CRM | `LoggingEmailChannel` mô phỏng | tích hợp thật |
+| Đăng nhập giao diện | cookie dev, chỉ chạy ở `Development` | OpenID Connect + Entra ID (xem §5) |
+| Transcript hội thoại | in-memory | cùng store với session |
 | `Rag:ScoreThreshold` | 0.15 tạm đặt | hiệu chỉnh bằng eval — spec đánh dấu `[DECISION REQUIRED]` |
 
 Các `[D-01]`…`[D-08]` ở spec §25 vẫn mở.

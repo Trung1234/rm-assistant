@@ -42,6 +42,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IConversationSessionStore, InMemoryConversationSessionStore>();
         services.TryAddSingleton<IApprovalStore, InMemoryApprovalStore>();
         services.TryAddSingleton<IDraftStore, InMemoryDraftStore>();
+        services.TryAddSingleton<IConversationTranscriptStore, InMemoryConversationTranscriptStore>();
         services.TryAddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
 
         // Use cases

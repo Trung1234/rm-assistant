@@ -41,6 +41,10 @@ builder.Services.AddBankAgentWorkflows();
 builder.Services.AddBankAgentHost();
 builder.Services.AddSingleton<IRmIdentityResolver, RmIdentityResolver>();
 
+// Giao diện RM. Razor Pages render phía server: trình duyệt không bao giờ giữ access token
+// hay khoá nào, và không có đường nào để UI tự quyết định quyền (SPEC §3.2).
+builder.Services.AddRazorPages();
+
 // Client host-to-server tới vault. KHÔNG bao giờ đăng ký thành MCP tool (SPEC FR-032).
 builder.Services.AddHttpClient<IPiiResolveClient, HttpPiiResolveClient>((provider, client) =>
 {
@@ -84,11 +88,29 @@ builder.Services
 
 var app = builder.Build();
 
+// Giao diện hiển thị dữ liệu khách hàng đã che, nhưng vẫn là dữ liệu khách hàng.
+// CSP chặt để một chuỗi lọt qua HTML-encode cũng không chạy được thành script;
+// frame-ancestors none để không ai nhúng màn hình phê duyệt vào trang khác (clickjacking).
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["Content-Security-Policy"] =
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        + "form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["Referrer-Policy"] = "no-referrer";
+    await next().ConfigureAwait(false);
+});
+
+app.UseStaticFiles();
+
 if (!string.IsNullOrWhiteSpace(authOptions.Authority))
 {
     app.UseAuthentication();
     app.UseAuthorization();
 }
+
+app.MapRazorPages();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 

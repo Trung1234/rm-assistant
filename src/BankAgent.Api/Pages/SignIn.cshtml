@@ -1,0 +1,62 @@
+@page
+@model SignInModel
+@{
+    ViewData["Title"] = "Chọn RM";
+}
+
+<div class="signin">
+    @if (!Model.DevMode)
+    {
+        <h1>Cần đăng nhập</h1>
+        <p>
+            Máy chủ đang chạy ở chế độ production: danh tính phải đến từ access token của
+            Microsoft Entra ID, không chọn tay được. Đăng nhập qua cổng của ngân hàng rồi quay lại.
+        </p>
+    }
+    else
+    {
+        <h1>Chọn RM</h1>
+        <p class="muted">
+            Màn hình này <strong>không xác thực</strong> — nó chỉ ghi danh tính vào cookie để thử ứng dụng
+            ở máy cá nhân. Nó biến mất khi <code>Auth:AllowDevHeaders</code> tắt.
+        </p>
+
+        @if (Model.Error is not null)
+        {
+            <div class="banner banner-error">@Model.Error</div>
+        }
+
+        @if (Model.AvailableRms.Count > 0)
+        {
+            <h2 class="sidebar-title">RM có trong cấu hình</h2>
+            <ul class="rm-list">
+                @foreach (var rm in Model.AvailableRms)
+                {
+                    <li>
+                        <code>@rm.RmId</code>
+                        <span class="muted small">danh mục: @string.Join(", ", rm.Portfolios)</span>
+                    </li>
+                }
+            </ul>
+            <p class="muted small">
+                Chọn hai RM khác nhau rồi hỏi cùng một câu để thấy giới hạn danh mục hoạt động.
+            </p>
+        }
+
+        <form method="post" class="signin-form">
+            <label>
+                Mã RM
+                <input type="text" asp-for="RmId" placeholder="RM007" required maxlength="40" />
+            </label>
+            <label>
+                Tenant
+                <input type="text" asp-for="TenantId" placeholder="tenant-a" required maxlength="40" />
+            </label>
+            <label>
+                Vai trò <span class="muted small">(phân tách bằng dấu phẩy)</span>
+                <input type="text" asp-for="Roles" placeholder="rm" maxlength="120" />
+            </label>
+            <button type="submit" class="btn btn-primary">Vào hội thoại</button>
+        </form>
+    }
+</div>

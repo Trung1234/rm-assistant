@@ -1,0 +1,207 @@
+@page "/{conversationId?}"
+@model IndexModel
+@{
+    ViewData["Title"] = "Hội thoại";
+}
+
+<div class="layout">
+    <aside class="sidebar">
+        <form method="post" asp-page-handler="New">
+            <button type="submit" class="btn btn-primary btn-block">+ Hội thoại mới</button>
+        </form>
+
+        <h2 class="sidebar-title">Gần đây</h2>
+        @if (Model.Recent.Count == 0)
+        {
+            <p class="muted small">Chưa có hội thoại nào.</p>
+        }
+        else
+        {
+            <ul class="conv-list">
+                @foreach (var item in Model.Recent)
+                {
+                    <li>
+                        <a asp-page="/Index" asp-route-conversationId="@item.ConversationId"
+                           class="conv-item @(item.ConversationId == Model.ConversationId ? "active" : "")">
+                            <span class="conv-title">@item.Title</span>
+                            <span class="muted small">@item.LastActivityAt.ToLocalTime().ToString("dd/MM HH:mm") · @item.MessageCount dòng</span>
+                        </a>
+                    </li>
+                }
+            </ul>
+        }
+
+        <div class="hint">
+            <h3>Thử hỏi</h3>
+            <ul>
+                <li>Khách nào đáo hạn trong 30 ngày tới?</li>
+                <li>Tổng hợp Customer 360 cho CUS0001</li>
+                <li>Điều kiện tái tục tiền gửi hiện hành là gì?</li>
+                <li>Soạn email nhắc đáo hạn cho CUS0001</li>
+            </ul>
+        </div>
+    </aside>
+
+    <section class="chat">
+        @if (Model.Banner is not null)
+        {
+            <div class="banner @(Model.BannerIsError ? "banner-error" : "banner-ok")">@Model.Banner</div>
+        }
+
+        <div class="messages" id="messages">
+            @if (Model.Transcript.Count == 0)
+            {
+                <div class="empty">
+                    <h2>Trợ lý CRM cho Relationship Manager</h2>
+                    <p>Hỏi bằng tiếng Việt. Agent chỉ đọc dữ liệu trong danh mục bạn được cấp quyền,
+                       trả lời kèm nguồn và thời điểm dữ liệu, và luôn hỏi phê duyệt trước khi gửi hoặc ghi.</p>
+                </div>
+            }
+
+            @foreach (var entry in Model.Transcript)
+            {
+                <article class="msg msg-@entry.Role.ToString().ToLowerInvariant()">
+                    <div class="msg-role">
+                        @(entry.Role switch
+                        {
+                            TranscriptRole.Rm => "Bạn",
+                            TranscriptRole.Agent => "Agent",
+                            _ => "Hệ thống",
+                        })
+                        <span class="muted small">@entry.At.ToLocalTime().ToString("HH:mm:ss")</span>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(entry.Text))
+                    {
+                        <div class="msg-body">@entry.Text</div>
+                    }
+
+                    @if (entry.Error is not null)
+                    {
+                        <div class="inline-error">
+                            <strong>@entry.Error.Code</strong> — @entry.Error.Message
+                            @if (entry.Error.Retryable)
+                            {
+                                <span class="muted"> (có thể thử lại)</span>
+                            }
+                        </div>
+                    }
+
+                    @if (entry.Sources.Count > 0)
+                    {
+                        <details class="sources" open>
+                            <summary>@entry.Sources.Count nguồn</summary>
+                            <ul>
+                                @foreach (var source in entry.Sources)
+                                {
+                                    <li>
+                                        <span class="src-label">@source.Label</span>
+                                        @if (!string.IsNullOrWhiteSpace(source.Reference))
+                                        {
+                                            <code>@source.Reference</code>
+                                        }
+                                        @if (source.DataAsOf is { } asOf)
+                                        {
+                                            <span class="muted small">dữ liệu tính đến @asOf.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        </details>
+                    }
+
+                    @if (entry.Receipt is { } receipt)
+                    {
+                        <div class="receipt">
+                            <strong>Đã thực thi</strong>
+                            <dl>
+                                <dt>Hành động</dt><dd>@receipt.Action</dd>
+                                <dt>Mã bản ghi</dt><dd><code>@receipt.RecordId</code></dd>
+                                <dt>Receipt</dt><dd><code>@receipt.ReceiptId</code></dd>
+                                <dt>Thời điểm</dt><dd>@receipt.ExecutedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</dd>
+                            </dl>
+                        </div>
+                    }
+
+                    @if (entry.Approval is { } approval)
+                    {
+                        var isPending = Model.PendingApproval?.ApprovalId == approval.ApprovalId;
+
+                        <div class="approval @(isPending ? "" : "approval-settled")">
+                            <div class="approval-head">
+                                <span class="badge badge-warn">CẦN PHÊ DUYỆT</span>
+                                <strong>@approval.Action</strong>
+                                <span class="muted small">tới @approval.MaskedTarget</span>
+                            </div>
+
+                            <div class="approval-preview">@approval.Preview</div>
+
+                            @if (approval.ExpectedChanges.Count > 0)
+                            {
+                                <div class="approval-block">
+                                    <h4>Thay đổi dự kiến</h4>
+                                    <ul>
+                                        @foreach (var change in approval.ExpectedChanges)
+                                        {
+                                            <li>@change</li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+
+                            @if (approval.Risks.Count > 0)
+                            {
+                                <div class="approval-block approval-risk">
+                                    <h4>Rủi ro</h4>
+                                    <ul>
+                                        @foreach (var risk in approval.Risks)
+                                        {
+                                            <li>@risk</li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+
+                            <div class="approval-meta">
+                                <span>Hết hạn @approval.ExpiresAt.ToLocalTime().ToString("HH:mm:ss dd/MM")</span>
+                                <code title="Hash payload đã đóng băng">@approval.PayloadHash[..Math.Min(23, approval.PayloadHash.Length)]…</code>
+                            </div>
+
+                            @if (isPending)
+                            {
+                                <form method="post" asp-page-handler="Decide" class="approval-actions">
+                                    <input type="hidden" name="approvalId" value="@approval.ApprovalId" />
+                                    <input type="hidden" name="payloadHash" value="@approval.PayloadHash" />
+                                    <input type="hidden" name="conversationId" value="@Model.ConversationId" />
+                                    <input type="text" name="comment" placeholder="Ghi chú (tuỳ chọn)" maxlength="200" />
+                                    <button type="submit" name="decision" value="approve" class="btn btn-approve" data-busy>Phê duyệt</button>
+                                    <button type="submit" name="decision" value="reject" class="btn btn-reject" data-busy>Từ chối</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <p class="muted small">Yêu cầu này đã được quyết định hoặc đã hết hạn.</p>
+                            }
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(entry.TraceId))
+                    {
+                        <div class="trace muted small">trace <code>@entry.TraceId</code></div>
+                    }
+                </article>
+            }
+        </div>
+
+        <form method="post" asp-page-handler="Send" class="composer" id="composer">
+            <input type="hidden" name="conversationId" value="@Model.ConversationId" />
+            <textarea name="Message" id="messageBox" rows="2" maxlength="2000"
+                      placeholder="Hỏi về khách hàng, cơ hội, chiến dịch hoặc chính sách sản phẩm…"
+                      autofocus></textarea>
+            <button type="submit" class="btn btn-primary" data-busy>Gửi</button>
+        </form>
+        <p class="composer-hint muted small">
+            Enter để gửi, Shift+Enter để xuống dòng. Câu trả lời có thể mất vài giây vì agent phải gọi dữ liệu CRM.
+        </p>
+    </section>
+</div>
