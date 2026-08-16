@@ -1,0 +1,18 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>13.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!--
+      MAF surfaces evaluation/experimental APIs behind these diagnostics. We pin package
+      versions (Directory.Packages.props) so the suppression stays scoped to a known SDK.
+    -->
+    <NoWarn>$(NoWarn);MEAI001;OPENAI001;AOAI001</NoWarn>
+  </PropertyGroup>
+
+</Project>

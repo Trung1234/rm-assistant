@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BankAgent.Contracts/BankAgent.Contracts.csproj" />
+    <Project Path="src/BankAgent.Security/BankAgent.Security.csproj" />
+    <Project Path="src/BankAgent.Observability/BankAgent.Observability.csproj" />
+    <Project Path="src/BankAgent.Rag/BankAgent.Rag.csproj" />
+    <Project Path="src/BankAgent.Application/BankAgent.Application.csproj" />
+    <Project Path="src/BankAgent.Workflows/BankAgent.Workflows.csproj" />
+    <Project Path="src/BankAgent.Agent/BankAgent.Agent.csproj" />
+    <Project Path="src/BankAgent.Api/BankAgent.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BankAgent.UnitTests/BankAgent.UnitTests.csproj" />
+  </Folder>
+</Solution>
