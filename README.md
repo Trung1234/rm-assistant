@@ -395,7 +395,7 @@ Màn hình hội thoại gồm:
 |---|---|
 | Cột trái | Hội thoại gần đây của **chính RM đó**, nút tạo hội thoại mới, vài câu hỏi mẫu |
 | Bong bóng tin | Câu hỏi của RM và câu trả lời của agent, kèm `traceId` để đối chiếu audit |
-| Khối nguồn | Danh sách citation kèm `documentId@version#section` và mốc `dataAsOf` |
+| Khối nguồn | Danh sách citation kèm `documentId::version#section` và mốc `dataAsOf` |
 | Thẻ phê duyệt | Preview đã che PII, thay đổi dự kiến, rủi ro, hạn, hash payload, nút Phê duyệt / Từ chối |
 | Thẻ receipt | Mã bản ghi, mã receipt và thời điểm sau khi hành động đã thực thi |
 

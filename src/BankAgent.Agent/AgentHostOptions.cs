@@ -31,9 +31,15 @@ public sealed class ModelOptions
     /// </summary>
     public string? ManagedIdentityClientId { get; set; }
 
-    public float Temperature { get; set; } = 0.2f;
+    /// <summary>
+    /// null = không gửi tham số này. Các model dòng suy luận (o1/o3, GPT-5-class) từ chối
+    /// yêu cầu có <c>temperature</c> với lỗi 400 "Unsupported parameter" — xác nhận qua lỗi
+    /// thật khi gọi gpt-5.6-luna trên endpoint AI Foundry v1. Chỉ đặt giá trị cho model
+    /// dòng cũ (gpt-4o trở về trước) thật sự hỗ trợ sampling temperature.
+    /// </summary>
+    public float? Temperature { get; set; }
 
-    public int MaxOutputTokens { get; set; } = 1200;
+    public int? MaxOutputTokens { get; set; } = 1200;
 }
 
 public sealed class McpOptions

@@ -65,7 +65,11 @@ public sealed record KnowledgeHit
     public AnswerSource ToSource() => new()
     {
         Label = $"{Chunk.Title} — {Chunk.Section}",
-        Reference = $"{Chunk.DocumentId}@{Chunk.Version}#{Chunk.Section}",
+
+        // "::" chứ không phải "@": documentId@version trông giống địa chỉ email và bị
+        // chính PiiGuard của host chặn nhầm thành PII rò rỉ (phát hiện qua chạy thật —
+        // mọi câu trả lời RAG đều bị SECURITY_VIOLATION trước khi sửa chỗ này).
+        Reference = $"{Chunk.DocumentId}::{Chunk.Version}#{Chunk.Section}",
         DataAsOf = Chunk.EffectiveFrom,
     };
 }

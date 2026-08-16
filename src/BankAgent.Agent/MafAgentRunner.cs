@@ -87,6 +87,23 @@ public sealed class MafAgentRunner(
 
         RecordTokenUsage(response, request.Identity.TenantId);
 
+        // CHẨN ĐOÁN TẠM: xem MAF thực sự trả về kiểu gì cho Result của FunctionResultContent
+        // khi dùng ResponsesClient — gỡ sau khi xác định được nguyên nhân Sources rỗng.
+        foreach (var diagMessage in response.Messages)
+        {
+            foreach (var diagContent in diagMessage.Contents)
+            {
+                if (diagContent is FunctionResultContent frc)
+                {
+                    _logger.LogWarning(
+                        "DIAG FunctionResultContent: CallId={CallId} ResultType={ResultType} ResultPreview={Preview}",
+                        frc.CallId,
+                        frc.Result?.GetType().FullName ?? "null",
+                        frc.Result?.ToString());
+                }
+            }
+        }
+
         var serialized = await SerializeSessionAsync(agent, session, ct).ConfigureAwait(false);
         var updatedSession = request.Session with { SerializedSession = serialized };
 

@@ -68,7 +68,7 @@ public sealed class RagTests
 
         Assert.False(result.InsufficientEvidence);
         var source = result.Hits.Single().ToSource();
-        Assert.Contains("DOC-SAVINGS-001@3.2", source.Reference);
+        Assert.Contains("DOC-SAVINGS-001::3.2", source.Reference);
     }
 
     /// <summary>Golden case 6 — chính sách hết hiệu lực không được dùng.</summary>
@@ -184,5 +184,27 @@ public sealed class RagTests
 
         Assert.StartsWith("sha256:", a);
         Assert.NotEqual(a, b);
+    }
+
+    /// <summary>
+    /// Regression: định dạng cũ "documentId@version" trông giống một email
+    /// (word@word.word) và bị chính PiiGuard của host chặn nhầm — bắt được qua chạy thật
+    /// với model thật, mọi câu trả lời RAG đều bị SECURITY_VIOLATION trước khi sửa.
+    /// Citation phải luôn qua lọt PiiGuard, nếu không RAG không bao giờ trả lời được.
+    /// </summary>
+    [Fact]
+    public void Citation_reference_khong_bi_PiiGuard_nham_thanh_email()
+    {
+        var hit = new KnowledgeHit
+        {
+            Chunk = Chunk("chk-1", "nội dung bất kỳ", Now.AddYears(-1)),
+            Score = 1.0,
+        };
+
+        var guard = new PiiGuard(TestData.Options(new PiiGuardOptions()));
+        var source = hit.ToSource();
+
+        Assert.True(guard.IsSafeForModel(source.Reference));
+        Assert.True(guard.IsSafeForModel(source.Label));
     }
 }
