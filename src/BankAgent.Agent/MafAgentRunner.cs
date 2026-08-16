@@ -35,7 +35,17 @@ public sealed class MafAgentRunner(
     IOptions<BankAgentOptions> agentOptions,
     ILoggerFactory loggerFactory) : IAgentRunner
 {
+    /// <summary>
+    /// CHỈ dùng để đọc/ghi kết quả tool của CHÍNH host (KnowledgeToolResult, WriteToolResult) —
+    /// những kiểu POCO đơn giản, không đa hình. KHÔNG dùng cho serialize/deserialize
+    /// AgentSession: <see cref="ChatClientAgentSession"/> cần type-info resolver riêng của MAF,
+    /// nếu không <c>SerializeSessionAsync</c> ném NotSupportedException ở mọi lượt — bắt được
+    /// qua chạy thật, không phải suy đoán (xem <see cref="SerializeSessionAsync"/>).
+    /// </summary>
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Options chính thức của MAF cho state của nó — bắt buộc dùng cho AgentSession.</summary>
+    private static readonly JsonSerializerOptions SessionSerializerOptions = AgentAbstractionsJsonUtilities.DefaultOptions;
 
     private readonly ModelOptions _modelOptions = modelOptions.Value;
     private readonly BankAgentOptions _agentOptions = agentOptions.Value;
@@ -86,23 +96,6 @@ public sealed class MafAgentRunner(
         }
 
         RecordTokenUsage(response, request.Identity.TenantId);
-
-        // CHẨN ĐOÁN TẠM: xem MAF thực sự trả về kiểu gì cho Result của FunctionResultContent
-        // khi dùng ResponsesClient — gỡ sau khi xác định được nguyên nhân Sources rỗng.
-        foreach (var diagMessage in response.Messages)
-        {
-            foreach (var diagContent in diagMessage.Contents)
-            {
-                if (diagContent is FunctionResultContent frc)
-                {
-                    _logger.LogWarning(
-                        "DIAG FunctionResultContent: CallId={CallId} ResultType={ResultType} ResultPreview={Preview}",
-                        frc.CallId,
-                        frc.Result?.GetType().FullName ?? "null",
-                        frc.Result?.ToString());
-                }
-            }
-        }
 
         var serialized = await SerializeSessionAsync(agent, session, ct).ConfigureAwait(false);
         var updatedSession = request.Session with { SerializedSession = serialized };
@@ -198,7 +191,9 @@ public sealed class MafAgentRunner(
             .Use(toolMiddleware.InvokeAsync)
             .UseToolApproval(new ToolApprovalAgentOptions
             {
-                JsonSerializerOptions = SerializerOptions,
+                // Cũng phải dùng options của MAF: middleware này lưu state approval nằm
+                // trong cùng chuỗi serialize với AgentSession.
+                JsonSerializerOptions = SessionSerializerOptions,
 
                 // KHÔNG có auto-approval rule nào. Mọi hành động ghi đều phải qua RM (FR-021).
                 AutoApprovalRules = [],
@@ -226,7 +221,7 @@ public sealed class MafAgentRunner(
         {
             using var document = JsonDocument.Parse(conversation.SerializedSession);
             return await agent
-                .DeserializeSessionAsync(document.RootElement.Clone(), SerializerOptions, ct)
+                .DeserializeSessionAsync(document.RootElement.Clone(), SessionSerializerOptions, ct)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or NotSupportedException)
@@ -242,7 +237,7 @@ public sealed class MafAgentRunner(
     {
         try
         {
-            var element = await agent.SerializeSessionAsync(session, SerializerOptions, ct).ConfigureAwait(false);
+            var element = await agent.SerializeSessionAsync(session, SessionSerializerOptions, ct).ConfigureAwait(false);
             return element.GetRawText();
         }
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
@@ -291,25 +286,24 @@ public sealed class MafAgentRunner(
 
     private static ExecutionReceipt? TryExtractReceipt(AgentResponse response)
     {
-        foreach (var message in response.Messages)
+        foreach (var result in EnumerateToolResults<WriteToolResult>(response))
         {
-            foreach (var content in message.Contents)
+            if (result.Status != "executed")
             {
-                if (content is FunctionResultContent { Result: WriteToolResult { Status: "executed" } result })
-                {
-                    return new ExecutionReceipt
-                    {
-                        ReceiptId = result.ReceiptId ?? string.Empty,
-                        Action = "write",
-                        RecordId = result.RecordId ?? string.Empty,
-                        ActorId = string.Empty,
-                        ExecutedAt = DateTimeOffset.TryParse(result.ExecutedAt, out var at) ? at : DateTimeOffset.UtcNow,
-                        Result = "success",
-                        IdempotencyKey = string.Empty,
-                        TraceId = string.Empty,
-                    };
-                }
+                continue;
             }
+
+            return new ExecutionReceipt
+            {
+                ReceiptId = result.ReceiptId ?? string.Empty,
+                Action = "write",
+                RecordId = result.RecordId ?? string.Empty,
+                ActorId = string.Empty,
+                ExecutedAt = DateTimeOffset.TryParse(result.ExecutedAt, out var at) ? at : DateTimeOffset.UtcNow,
+                Result = "success",
+                IdempotencyKey = string.Empty,
+                TraceId = string.Empty,
+            };
         }
 
         return null;
@@ -321,21 +315,62 @@ public sealed class MafAgentRunner(
     {
         var sources = new List<AnswerSource>();
 
-        foreach (var message in response.Messages)
+        foreach (var knowledge in EnumerateToolResults<KnowledgeToolResult>(response))
         {
-            foreach (var content in message.Contents)
-            {
-                if (content is FunctionResultContent { Result: KnowledgeToolResult knowledge })
-                {
-                    sources.AddRange(knowledge.Citations);
-                }
-            }
+            sources.AddRange(knowledge.Citations);
         }
 
         return sources
             .GroupBy(source => source.Reference ?? source.Label, StringComparer.Ordinal)
             .Select(group => group.First())
             .ToList();
+    }
+
+    /// <summary>
+    /// Đọc kết quả tool từ <see cref="FunctionResultContent.Result"/>.
+    ///
+    /// MAF luôn round-trip <c>Result</c> qua JSON — phục vụ session persistence và tool
+    /// approval — nên kiểu CLR gốc (<see cref="KnowledgeToolResult"/>, <see cref="WriteToolResult"/>)
+    /// không còn giữ được nữa; nó tới đây dưới dạng <see cref="JsonElement"/>. Xác nhận qua
+    /// chạy thật với model thật: pattern-match theo type CLR luôn thất bại và Sources luôn
+    /// rỗng cho tới khi thêm nhánh deserialize này.
+    /// </summary>
+    private static IEnumerable<T> EnumerateToolResults<T>(AgentResponse response) where T : class
+    {
+        foreach (var message in response.Messages)
+        {
+            foreach (var content in message.Contents)
+            {
+                if (content is not FunctionResultContent { Result: { } result })
+                {
+                    continue;
+                }
+
+                var typed = result switch
+                {
+                    T direct => direct,
+                    JsonElement element => DeserializeOrNull<T>(element),
+                    _ => null,
+                };
+
+                if (typed is not null)
+                {
+                    yield return typed;
+                }
+            }
+        }
+    }
+
+    private static T? DeserializeOrNull<T>(JsonElement element) where T : class
+    {
+        try
+        {
+            return element.Deserialize<T>(SerializerOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private void RecordTokenUsage(AgentResponse response, string tenantId)
