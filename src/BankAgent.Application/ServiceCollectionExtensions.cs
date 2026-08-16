@@ -27,6 +27,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IPiiGuard, PiiGuard>();
         services.TryAddSingleton<IToolPolicy, ToolPolicy>();
         services.TryAddSingleton<IPortfolioAuthorizationService, PortfolioAuthorizationService>();
+        services.TryAddSingleton<IAnswerPiiRenderer, AnswerPiiRenderer>();
         services.TryAddScoped<RmIdentityAccessor>();
         services.TryAddScoped<IRmIdentityAccessor>(sp => sp.GetRequiredService<RmIdentityAccessor>());
 

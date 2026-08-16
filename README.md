@@ -544,10 +544,22 @@ jq -r 'select(.traceId=="<traceId>") | "\(.occurredAt) \(.eventType) \(.outcome)
 
 Phần hạ tầng:
 
-- Build sạch, **64/64 unit test pass**.
+- Build sạch, **71/71 unit test pass**.
 - API khởi động, nạp 6 chunk tri thức, checksum khớp.
 - Kết nối MCP Server thật: liệt kê 3 tool, allowlist loại `ping`, nạp 2/3.
 - Audit ghi `CONVERSATION_STARTED` → `AGENT_RUN_STARTED` với `pii: tokenized`.
+
+Phần model, chạy thật với Azure AI Foundry (endpoint `.../openai/v1`, model `gpt-5.6-luna`) —
+xem thêm §5.1 về ba lỗi thật đã sửa để đạt được kết quả này:
+
+- Hỏi thường ("Xin chào, bạn là ai?") → model trả lời đúng ngữ cảnh, tiếng Việt.
+- Hỏi cần RAG ("Điều kiện tái tục tiền gửi hiện hành là gì?") → agent tự gọi
+  `search_product_knowledge`, câu trả lời trích đúng nội dung đã seed, kèm citation
+  `documentId::version#section` render được trong UI.
+- **Bộ nhớ nhiều lượt**: lượt 1 nói "Tôi tên là Nam", lượt 3 hỏi "Tên tôi là gì?" → agent trả
+  lời đúng "Nam" — chứng minh `AgentSession` thật sự serialize/deserialize được giữa các lượt.
+- Audit log sạch: không có `SECURITY_VIOLATION`, không có exception, mọi `AGENT_RUN_COMPLETED`
+  đều `outcome=success`.
 
 Phần giao diện, chạy thật trên trình duyệt:
 
@@ -567,16 +579,60 @@ Phần giao diện, chạy thật trên trình duyệt:
 
 ## 5. Chưa kiểm chứng
 
-Không có Azure OpenAI endpoint thật trong môi trường phát triển hiện tại, nên **mọi thứ từ lời gọi model trở đi chưa chạy end-to-end**. Cụ thể:
+### 5.1 Ba lỗi thật đã gặp và sửa khi nối model thật
 
-- Vòng ReAct và việc model chọn đúng tool.
-- Việc framework phát `ToolApprovalRequestContent` rồi nối lại bằng `ToolApprovalResponseContent`
-  ([MafAgentRunner.cs:238](src/BankAgent.Agent/MafAgentRunner.cs#L238)) — **đây là mắt xích rủi ro nhất**, cần test tích hợp với model thật trước khi tin.
-- Serialize/deserialize `AgentSession` qua nhiều lượt.
+Ghi lại vì chúng không phải lỗi cấu hình hời hợt — mỗi lỗi chỉ lộ ra sau khi lỗi trước đã sửa:
 
-Toàn bộ phần **sau** khi có approval — hash, hạn, quyền, idempotency, resolve PII, receipt — đã test kỹ vì nó không phụ thuộc model.
+| # | Triệu chứng | Nguyên nhân thật | Sửa |
+|---|---|---|---|
+| 1 | `404` mọi lời gọi model | `AzureOpenAIClient.GetChatClient()` gọi Chat Completions cổ điển; resource chỉ phục vụ Responses API v1 | Chuyển sang `ResponsesClient` |
+| 2 | `MissingMethodException` lúc chạy | `Azure.AI.OpenAI` 2.9.0-beta.1 biên dịch cứng với `OpenAI` 2.9.1; `Microsoft.Extensions.AI.OpenAI` 10.9.0 lại ép `OpenAI` ≥2.12.0 — hai gói preview xung đột phiên bản transitive | Bỏ hẳn `Azure.AI.OpenAI`, dùng thẳng SDK OpenAI gốc + `BearerTokenPolicy` cho Managed Identity |
+| 3 | `400 Unsupported parameter: temperature` | `gpt-5.6-luna` là model dòng suy luận, từ chối `temperature` | `Temperature` thành `float?`, mặc định không gửi |
+| 4 | Mọi câu trả lời RAG bị `SECURITY_VIOLATION`; hội thoại không nhớ được lượt trước | (a) `documentId@version` trùng regex phát hiện email; (b) `AgentSession` serialize bằng `JsonSerializerOptions` chung, thiếu type resolver cho `ChatClientAgentSession` → ném lỗi mọi lượt, session không bao giờ lưu được | (a) Đổi `@` thành `::`; (b) dùng `AgentAbstractionsJsonUtilities.DefaultOptions` của chính MAF |
 
-`bankassist-mcp` cũng chưa có `/vault/resolve`, nên `send_email` sẽ dừng ở `PII_TOKEN_INVALID` cho tới khi endpoint đó tồn tại.
+Chi tiết: [ChatClientFactory.cs](src/BankAgent.Agent/ChatClientFactory.cs), [MafAgentRunner.cs](src/BankAgent.Agent/MafAgentRunner.cs), [Knowledge.cs](src/BankAgent.Contracts/Knowledge.cs).
+
+### 5.2 Còn lại chưa kiểm chứng
+
+- **Luồng ghi có phê duyệt VỚI MODEL THẬT** — chưa test đủ. Đã xác nhận model thật gọi đúng
+  tool đọc (`search_product_knowledge`) và nhớ được ngữ cảnh nhiều lượt, nhưng chưa xác nhận
+  việc framework phát `ToolApprovalRequestContent` rồi nối lại bằng `ToolApprovalResponseContent`
+  khi RM bấm duyệt ([MafAgentRunner.cs:238](src/BankAgent.Agent/MafAgentRunner.cs#L238)) hoạt
+  động đúng với model thật — chỉ mới test bằng test double (`ApprovalGateTests`,
+  `WriteWorkflowTests`). Đây vẫn là mắt xích rủi ro nhất còn lại.
+- **`/vault/resolve` chưa tồn tại ở `bankassist-mcp`** (task T-16 bên đó, xác nhận `404` khi gọi
+  thật). Điều này chặn **hai** thứ, không chỉ một:
+  - `send_email` dừng ở `PII_TOKEN_INVALID`.
+  - Tính năng mới **unmask câu trả lời cho RM** (`AnswerPiiRenderer`, xem §5.3) không hoàn
+    nguyên được — RM vẫn thấy token `[PERSON_1]` thay vì tên thật, dù code đã sẵn sàng.
+    Đã xác nhận: hệ thống **fail an toàn**, không crash, không lộ gì — chỉ đơn giản là chưa
+    unmask được, và log rõ lý do (`PII_TOKEN_INVALID`).
+
+Toàn bộ phần **sau** khi có approval — hash, hạn, quyền, idempotency, resolve PII, receipt — đã test kỹ bằng test double vì nó không phụ thuộc model.
+
+### 5.3 Mới: unmask câu trả lời cho RM (`rm_render`)
+
+LLM/log/audit chỉ thấy token — đúng thiết kế (FR-030/031). Nhưng RM là người đã xác thực, và
+PII Vault tồn tại chính là để RM xem được giá trị thật khi cần, không phải để không ai xem được
+(SPEC §8.3 purpose `rm_render`, giải quyết open decision D-08). Trước bản này, không có gì gọi
+`/vault/resolve` cho mục đích đó — RM luôn thấy token thô trong câu trả lời.
+
+Đã thêm [`AnswerPiiRenderer`](src/BankAgent.Security/AnswerPiiRenderer.cs): sau khi
+`ConversationService` xác nhận câu trả lời sạch PII thô (không đổi hành vi cũ), nó tìm token
+trong văn bản, gọi resolve với purpose `rm_render`, rồi thay token bằng giá trị thật trước khi
+trả cho RM. Vault từ chối (hết hạn, chưa tồn tại như hiện tại) thì giữ nguyên token — không lỗi,
+không crash.
+
+Có cờ tắt: `BankAgent:UnmaskAnswersForRm` (mặc định `true`) — SPEC đánh dấu D-08/SEC-010 là
+quyết định của security/compliance ngân hàng, không phải quyết định kỹ thuật thuần tuý; tắt cờ
+này nếu compliance yêu cầu RM chỉ xem dữ liệu che ngay trong hội thoại.
+
+**Đã kiểm chứng**: 6 unit test (`AnswerPiiRendererTests`) và chạy thật — gọi
+`http://localhost:5080` với câu "cho toi thong tin khach hang CUS0034" xác nhận hệ thống gọi
+đúng `/vault/resolve`, nhận `404` từ `bankassist-mcp` (chưa cài T-16), và **fallback đúng như
+thiết kế**: giữ token, ghi log rõ ràng, không exception, `AGENT_RUN_COMPLETED outcome=success`.
+Sẽ tự hoạt động đầy đủ ngay khi `bankassist-mcp` có `/vault/resolve` — không cần sửa gì thêm
+ở phía repo này.
 
 ### Giao diện: thiếu xác thực cho production
 
@@ -604,13 +660,14 @@ Với đích P95 5–15 giây của `NFR-001/002` thì chấp nhận được �
 ## 6. Test
 
 ```bash
-dotnet test                                            # 64 test
+dotnet test                                            # 71 test
 dotnet test --filter FullyQualifiedName~ApprovalGate    # cổng phê duyệt
 dotnet test --filter FullyQualifiedName~WriteWorkflow   # idempotency, hash, hạn
 dotnet test --filter FullyQualifiedName~Security        # PII, portfolio, session
 dotnet test --filter FullyQualifiedName~Rag             # citation, abstain, injection
 dotnet test --filter FullyQualifiedName~ToolPolicy      # allowlist, vai trò
 dotnet test --filter FullyQualifiedName~Transcript      # cô lập transcript giữa các RM
+dotnet test --filter FullyQualifiedName~AnswerPiiRenderer  # unmask câu trả lời cho RM
 ```
 
 Ánh xạ sang golden case của spec §21.2:
@@ -627,6 +684,7 @@ dotnet test --filter FullyQualifiedName~Transcript      # cô lập transcript g
 | 14 — token khác tenant → fail + audit | `ApprovalGateTests` |
 | 15, 16 — PII thô không lọt ra model/log | `SecurityBoundaryTests` |
 | — cô lập hội thoại giữa các RM ở tầng hiển thị | `TranscriptStoreTests` |
+| — unmask token cho RM, fail-safe khi vault từ chối | `AnswerPiiRendererTests` |
 | 19 — vòng tool vượt 3 → dừng an toàn | `ToolPolicyTests` + [ToolInvocationMiddleware.cs:56](src/BankAgent.Agent/Middleware/ToolInvocationMiddleware.cs#L56) |
 
 Còn thiếu để đủ 20 case: 1, 3, 9, 17, 18, 20 — cần model thật hoặc test tích hợp (Phase 6).
@@ -645,6 +703,8 @@ Còn thiếu để đủ 20 case: 1, 3, 9, 17, 18, 20 — cần model thật ho�
 | Đăng nhập giao diện | cookie dev, chỉ chạy ở `Development` | OpenID Connect + Entra ID (xem §5) |
 | Transcript hội thoại | in-memory | cùng store với session |
 | `Rag:ScoreThreshold` | 0.15 tạm đặt | hiệu chỉnh bằng eval — spec đánh dấu `[DECISION REQUIRED]` |
+| `POST /vault/resolve` ở `bankassist-mcp` | chưa cài (T-16, xác nhận `404`) | chặn cả `send_email` lẫn unmask câu trả lời cho RM (§5.3) |
+| `BankAgent:UnmaskAnswersForRm` | mặc định `true` | D-08/SEC-010 — cần security/compliance ngân hàng duyệt trước khi bật ở production |
 
 Các `[D-01]`…`[D-08]` ở spec §25 vẫn mở.
 

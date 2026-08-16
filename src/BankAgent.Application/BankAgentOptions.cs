@@ -20,4 +20,13 @@ public sealed class BankAgentOptions
 
     /// <summary>SPEC NFR-001/002: chặn trên cho một lượt agent run.</summary>
     public int AgentRunTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Hoàn nguyên token PII trong câu trả lời trước khi hiển thị cho RM — SPEC §8.3 purpose
+    /// rm_render. Mặc định bật vì đó là lý do PII Vault tồn tại: che với LLM/log/audit,
+    /// không che với RM đã xác thực. SPEC D-08/SEC-010 để ngỏ quyết định này cho
+    /// security/compliance của ngân hàng — tắt cờ này nếu compliance yêu cầu RM chỉ xem
+    /// dữ liệu đã che ngay trong hội thoại (ví dụ bắt buộc qua màn hình CRM riêng để xem PII).
+    /// </summary>
+    public bool UnmaskAnswersForRm { get; set; } = true;
 }

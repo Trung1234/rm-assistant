@@ -36,6 +36,7 @@ public sealed class ConversationService(
     IConversationTranscriptStore transcripts,
     IBusinessAuditLog audit,
     IPiiGuard piiGuard,
+    IAnswerPiiRenderer answerRenderer,
     AgentTelemetry telemetry,
     TimeProvider timeProvider,
     IOptions<BankAgentOptions> options,
@@ -241,12 +242,18 @@ public sealed class ConversationService(
             durationMs: stopwatch.ElapsedMilliseconds,
             ct: ct).ConfigureAwait(false);
 
+        // Model chỉ thấy token (FR-030/031, đã kiểm sạch ở trên); RM đã xác thực thì được xem
+        // giá trị thật — hoàn nguyên NGAY TRƯỚC khi trả ra, sau khi audit đã ghi digest của
+        // bản còn token. Không đụng tới answer gốc: audit/log phía trên vẫn chỉ thấy token.
+        var displayAnswer = await RenderForDisplayAsync(answer, conversationId, identity, traceId, ct)
+            .ConfigureAwait(false);
+
         var response = new SendMessageResponse
         {
             ConversationId = conversationId,
             MessageId = "msg_" + Guid.NewGuid().ToString("n"),
             Status = approvalPrompt is not null ? ConversationStatus.AwaitingApproval : result.Status,
-            Answer = answer,
+            Answer = displayAnswer,
             Sources = result.Sources,
             Approval = approvalPrompt,
             Error = result.Error,
@@ -260,7 +267,7 @@ public sealed class ConversationService(
             {
                 EntryId = NewEntryId(),
                 Role = TranscriptRole.Agent,
-                Text = answer ?? string.Empty,
+                Text = displayAnswer ?? string.Empty,
                 At = timeProvider.GetUtcNow(),
                 Sources = response.Sources,
                 Approval = approvalPrompt,
@@ -363,6 +370,14 @@ public sealed class ConversationService(
 
         if (!string.IsNullOrWhiteSpace(runResult.AnswerText))
         {
+            var displayAnswer = await RenderForDisplayAsync(
+                    runResult.AnswerText,
+                    outcome.Approval.ConversationId,
+                    identity,
+                    traceId,
+                    ct)
+                .ConfigureAwait(false);
+
             await AppendTranscriptAsync(
                 outcome.Approval.ConversationId,
                 identity,
@@ -370,7 +385,7 @@ public sealed class ConversationService(
                 {
                     EntryId = NewEntryId(),
                     Role = TranscriptRole.Agent,
-                    Text = runResult.AnswerText,
+                    Text = displayAnswer ?? string.Empty,
                     At = timeProvider.GetUtcNow(),
                     Sources = runResult.Sources,
                     TraceId = traceId,
@@ -484,6 +499,27 @@ public sealed class ConversationService(
             ct).ConfigureAwait(false);
 
         return response;
+    }
+
+    /// <summary>
+    /// Hoàn nguyên token PII cho RM xem — SPEC §8.3 purpose rm_render. Chỉ gọi với văn bản
+    /// ĐÃ qua <see cref="IPiiGuard"/>; hàm này không tự kiểm tra lại điều đó.
+    /// </summary>
+    private async Task<string?> RenderForDisplayAsync(
+        string? maskedText,
+        string conversationId,
+        RmIdentity identity,
+        string traceId,
+        CancellationToken ct)
+    {
+        if (!_options.UnmaskAnswersForRm || string.IsNullOrEmpty(maskedText))
+        {
+            return maskedText;
+        }
+
+        return await answerRenderer
+            .RenderForRmAsync(maskedText, VaultSessionId(conversationId, identity), identity, traceId, ct)
+            .ConfigureAwait(false);
     }
 
     private Task AppendTranscriptAsync(
