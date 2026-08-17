@@ -73,6 +73,11 @@ public sealed class MafAgentRunner(
             ? BuildApprovalResponseMessage(resumption)
             : new ChatMessage(ChatRole.User, request.UserMessage);
 
+        _logger.LogDebug(
+            "Agent run bắt đầu cho hội thoại {ConversationId}. Instructions: {Instructions}",
+            scope.ConversationId,
+            BankAgentInstructions.System);
+
         AgentResponse response;
         try
         {
@@ -96,6 +101,11 @@ public sealed class MafAgentRunner(
         }
 
         RecordTokenUsage(response, request.Identity.TenantId);
+
+        _logger.LogDebug(
+            "Agent run hoàn tất cho hội thoại {ConversationId}. Response: {ResponseText}",
+            scope.ConversationId,
+            response.Text);
 
         var serialized = await SerializeSessionAsync(agent, session, ct).ConfigureAwait(false);
         var updatedSession = request.Session with { SerializedSession = serialized };
@@ -168,6 +178,7 @@ public sealed class MafAgentRunner(
 
         var chatOptions = new ChatOptions
         {
+            Instructions = BankAgentInstructions.System,
             Tools = tools,
             Temperature = _modelOptions.Temperature,
             MaxOutputTokens = _modelOptions.MaxOutputTokens,
