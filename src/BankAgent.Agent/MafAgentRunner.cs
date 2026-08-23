@@ -73,10 +73,10 @@ public sealed class MafAgentRunner(
             ? BuildApprovalResponseMessage(resumption)
             : new ChatMessage(ChatRole.User, request.UserMessage);
 
-        _logger.LogDebug(
-            "Agent run bắt đầu cho hội thoại {ConversationId}. Instructions: {Instructions}",
-            scope.ConversationId,
-            BankAgentInstructions.System);
+        // Nội dung prompt không log ở đây: hằng số này mới là thứ ta ĐỊNH gửi. Prompt thật —
+        // kể cả ngữ cảnh nối thêm ở các vòng tool call — do PromptLoggingChatClient ghi lại,
+        // bật bằng Model:LogPrompts.
+        _logger.LogDebug("Agent run bắt đầu cho hội thoại {ConversationId}.", scope.ConversationId);
 
         AgentResponse response;
         try
@@ -185,7 +185,7 @@ public sealed class MafAgentRunner(
         };
 
         var baseAgent = new ChatClientAgent(
-            chatClientFactory.Create(),
+            CreateChatClient(),
             new ChatClientAgentOptions
             {
                 Name = "BankCrmAgent",
@@ -216,6 +216,28 @@ public sealed class MafAgentRunner(
                 telemetryOptions.EnableSensitiveData = false;
             })
             .Build();
+    }
+
+    /// <summary>
+    /// Bọc thêm lớp ghi log prompt khi <c>Model:LogPrompts</c> bật.
+    ///
+    /// Bọc ở đây — lớp trong cùng, sát HTTP — chứ không phải ở agent builder: chỉ chỗ này mới
+    /// thấy đúng payload mỗi vòng gọi model, sau khi FunctionInvokingChatClient của MAF đã nối
+    /// thêm function call và tool result của các vòng trước.
+    /// </summary>
+    private IChatClient CreateChatClient()
+    {
+        var client = chatClientFactory.Create();
+
+        if (!_modelOptions.LogPrompts)
+        {
+            return client;
+        }
+
+        return new PromptLoggingChatClient(
+            client,
+            executionContext,
+            loggerFactory.CreateLogger<PromptLoggingChatClient>());
     }
 
     private async Task<AgentSession> ResumeOrCreateSessionAsync(

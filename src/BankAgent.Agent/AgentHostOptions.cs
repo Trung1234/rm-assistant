@@ -40,6 +40,15 @@ public sealed class ModelOptions
     public float? Temperature { get; set; }
 
     public int? MaxOutputTokens { get; set; } = 1200;
+
+    /// <summary>
+    /// Ghi nguyên văn prompt gửi lên model (system instruction + message + tool) vào log ở mỗi
+    /// vòng gọi — xem <see cref="Middleware.PromptLoggingChatClient"/>.
+    ///
+    /// Mặc định TẮT và production phải để tắt: SPEC §13.2 cấm ghi nội dung nhạy cảm, và prompt
+    /// chứa message thô của RM. Bật ở dev khi cần biết chính xác model nhận được gì.
+    /// </summary>
+    public bool LogPrompts { get; set; }
 }
 
 public sealed class McpOptions

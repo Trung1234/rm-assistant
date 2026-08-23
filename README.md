@@ -10,13 +10,13 @@ MCP Server **không** nằm trong repo này — nó là dự án riêng [`bankas
 
 Spec tách rõ hai loại quyết định, và toàn bộ mã nguồn tổ chức quanh ranh giới đó:
 
-| Phần XÁC SUẤT — model quyết định | Phần XÁC ĐỊNH — code quyết định |
-|---|---|
-| Gọi tool đọc nào | Ai được xem khách hàng nào |
-| Tổng hợp câu trả lời | Tool nào tồn tại |
-| Soạn nội dung nháp | Hành động ghi có được chạy không |
-| Đề xuất hành động tiếp theo | Payload nào thực sự được gửi |
-| | Retry có tạo tác động thứ hai không |
+| Phần XÁC SUẤT — model quyết định | Phần XÁC ĐỊNH — code quyết định    |
+| --------------------------------------- | ------------------------------------------ |
+| Gọi tool đọc nào                    | Ai được xem khách hàng nào           |
+| Tổng hợp câu trả lời               | Tool nào tồn tại                        |
+| Soạn nội dung nháp                   | Hành động ghi có được chạy không  |
+| Đề xuất hành động tiếp theo      | Payload nào thực sự được gửi        |
+|                                         | Retry có tạo tác động thứ hai không |
 
 Model không bao giờ tự thực hiện được một hành động có tác động nghiệp vụ. Ba lớp chặn độc lập:
 
@@ -42,11 +42,11 @@ flowchart LR
     style EXEC fill:#d4f4dd,stroke:#2d7a4a,color:#123
 ```
 
-| Lớp | Cơ chế | File |
-|---|---|---|
-| 1 | `ApprovalRequiredAIFunction` + `UseToolApproval` | [WriteTools.cs](src/BankAgent.Agent/Tools/WriteTools.cs) |
-| 2 | `AgentExecutionScope.ResumingApprovalId` + so lại hash | [WriteTools.cs:107](src/BankAgent.Agent/Tools/WriteTools.cs#L107) |
-| 3 | trạng thái · hạn · actor · hash · allowlist · quyền · idempotency | [ApprovalWriteWorkflow.cs](src/BankAgent.Workflows/ApprovalWriteWorkflow.cs) |
+| Lớp | Cơ chế                                                                    | File                                                                        |
+| ---- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1    | `ApprovalRequiredAIFunction` + `UseToolApproval`                        | [WriteTools.cs](src/BankAgent.Agent/Tools/WriteTools.cs)                     |
+| 2    | `AgentExecutionScope.ResumingApprovalId` + so lại hash                   | [WriteTools.cs:107](src/BankAgent.Agent/Tools/WriteTools.cs#L107)            |
+| 3    | trạng thái · hạn · actor · hash · allowlist · quyền · idempotency | [ApprovalWriteWorkflow.cs](src/BankAgent.Workflows/ApprovalWriteWorkflow.cs) |
 
 ---
 
@@ -204,7 +204,7 @@ Time Elapsed 00:00:00.71
   Dừng  : scripts/stop-all.sh
 ```
 
-Mở <http://localhost:5080/> rồi chọn RM. Dừng:
+Mở [http://localhost:5080/](http://localhost:5080/) rồi chọn RM. Dừng:
 
 ```bash
 ./scripts/stop-all.sh
@@ -212,13 +212,13 @@ Mở <http://localhost:5080/> rồi chọn RM. Dừng:
 
 Script làm đúng những việc dễ quên khi làm tay:
 
-| Việc | Vì sao |
-|---|---|
-| Kiểm tra khoá MCP trước khi chạy | Thiếu khoá thì MCP Server tự tắt, và lý do chỉ nằm trong log |
-| Chờ `/health` thay vì `sleep` cố định | Máy chậm không hỏng, máy nhanh không phải chờ thừa |
-| In log khi một dịch vụ chết lúc khởi động | Không phải đi mò `.run/*.log` |
-| Dùng lại dịch vụ đã chạy ở cùng cổng | Không dựng tiến trình thứ hai tranh cổng |
-| Dừng theo **cây tiến trình** | `dotnet run` chạy app như tiến trình con; giết mỗi tiến trình cha sẽ để lại app giữ cổng |
+| Việc                                             | Vì sao                                                                                                  |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Kiểm tra khoá MCP trước khi chạy             | Thiếu khoá thì MCP Server tự tắt, và lý do chỉ nằm trong log                                    |
+| Chờ`/health` thay vì `sleep` cố định     | Máy chậm không hỏng, máy nhanh không phải chờ thừa                                              |
+| In log khi một dịch vụ chết lúc khởi động | Không phải đi mò`.run/*.log`                                                                       |
+| Dùng lại dịch vụ đã chạy ở cùng cổng    | Không dựng tiến trình thứ hai tranh cổng                                                           |
+| Dừng theo**cây tiến trình**             | `dotnet run` chạy app như tiến trình con; giết mỗi tiến trình cha sẽ để lại app giữ cổng |
 
 Biến môi trường có thể ghi đè: `MCP_DIR`, `MCP_URL`, `AGENT_URL`, `WAIT_SECONDS`.
 
@@ -229,16 +229,16 @@ MCP_DIR=/duong/dan/khac/bankassist-mcp ./scripts/run-all.sh
 > Script **không ghi gì vào repo `bankassist-mcp`**. Thiếu khoá thì nó in sẵn một cặp khoá
 > ngẫu nhiên kèm đường dẫn file để bạn tự tạo — secret của dự án khác thì để dự án đó giữ.
 
-Các mục 3.1–3.10 bên dưới là bản chi tiết của đúng quy trình này, dùng khi cần chạy tay
+Các mục 3.1–3.11 bên dưới là bản chi tiết của đúng quy trình này, dùng khi cần chạy tay
 từng phần hoặc khi có gì đó không đúng.
 
 ### 3.1 Yêu cầu
 
-| Thành phần | Kiểm tra | Ghi chú |
-|---|---|---|
-| .NET 10 SDK | `dotnet --version` → `10.x` | bắt buộc |
-| `bankassist-mcp` | thư mục cạnh repo này | cần cho tool đọc CRM |
-| Azure OpenAI | endpoint + deployment | cần cho vòng ReAct; thiếu thì chỉ chạy được giao diện, health và auth |
+| Thành phần       | Kiểm tra                        | Ghi chú                                                                         |
+| ------------------ | -------------------------------- | -------------------------------------------------------------------------------- |
+| .NET 10 SDK        | `dotnet --version` → `10.x` | bắt buộc                                                                       |
+| `bankassist-mcp` | thư mục cạnh repo này        | cần cho tool đọc CRM                                                          |
+| Azure OpenAI       | endpoint + deployment            | cần cho vòng ReAct; thiếu thì chỉ chạy được giao diện, health và auth |
 
 Sơ đồ cái gì nói chuyện với cái gì khi đã chạy đủ:
 
@@ -383,7 +383,7 @@ Dòng thứ nhất là allowlist phía host đang làm việc: MCP Server publis
 
 ### 3.6 Bước 4 — mở giao diện
 
-Mở **<http://localhost:5080/>**. Không có danh tính thì trang tự chuyển sang `/SignIn`.
+Mở **[http://localhost:5080/](http://localhost:5080/)**. Không có danh tính thì trang tự chuyển sang `/SignIn`.
 
 Ở dev, `/SignIn` **không xác thực gì cả** — nó chỉ ghi mã RM và tenant vào cookie để thử ứng dụng.
 Nó liệt kê sẵn các RM có trong `Auth:RmPortfolios` kèm danh mục của từng người, nên chọn hai RM
@@ -391,13 +391,13 @@ khác nhau rồi hỏi cùng một câu là thấy ngay giới hạn danh mục 
 
 Màn hình hội thoại gồm:
 
-| Khu vực | Nội dung |
-|---|---|
-| Cột trái | Hội thoại gần đây của **chính RM đó**, nút tạo hội thoại mới, vài câu hỏi mẫu |
-| Bong bóng tin | Câu hỏi của RM và câu trả lời của agent, kèm `traceId` để đối chiếu audit |
-| Khối nguồn | Danh sách citation kèm `documentId::version#section` và mốc `dataAsOf` |
+| Khu vực         | Nội dung                                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| Cột trái       | Hội thoại gần đây của**chính RM đó**, nút tạo hội thoại mới, vài câu hỏi mẫu  |
+| Bong bóng tin   | Câu hỏi của RM và câu trả lời của agent, kèm`traceId` để đối chiếu audit              |
+| Khối nguồn     | Danh sách citation kèm`documentId::version#section` và mốc `dataAsOf`                         |
 | Thẻ phê duyệt | Preview đã che PII, thay đổi dự kiến, rủi ro, hạn, hash payload, nút Phê duyệt / Từ chối |
-| Thẻ receipt | Mã bản ghi, mã receipt và thời điểm sau khi hành động đã thực thi |
+| Thẻ receipt     | Mã bản ghi, mã receipt và thời điểm sau khi hành động đã thực thi                        |
 
 Vài điểm về thiết kế trang này, vì chúng là quyết định bảo mật chứ không phải quyết định giao diện:
 
@@ -476,13 +476,13 @@ curl -s -X POST http://localhost:5080/api/approvals/<approvalId>/decision \
 
 Vài ca đáng thử tay:
 
-| Gửi gì | Kỳ vọng |
-|---|---|
-| `expectedPayloadHash` sai một ký tự | `409` · `PAYLOAD_CHANGED` |
-| Duyệt sau 15 phút | `409` · `APPROVAL_EXPIRED` |
-| Đổi `X-Dev-Rm-Id` sang RM khác | `404` — không xác nhận approval có tồn tại |
-| Duyệt lại lần hai | `409` · `IDEMPOTENCY_CONFLICT` |
-| `decision: "reject"` | `200`, trạng thái `Rejected`, không thực thi |
+| Gửi gì                                 | Kỳ vọng                                            |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `expectedPayloadHash` sai một ký tự | `409` · `PAYLOAD_CHANGED`                       |
+| Duyệt sau 15 phút                      | `409` · `APPROVAL_EXPIRED`                      |
+| Đổi`X-Dev-Rm-Id` sang RM khác       | `404` — không xác nhận approval có tồn tại  |
+| Duyệt lại lần hai                     | `409` · `IDEMPOTENCY_CONFLICT`                  |
+| `decision: "reject"`                   | `200`, trạng thái `Rejected`, không thực thi |
 
 ### 3.9 Kiểm tra audit
 
@@ -511,34 +511,77 @@ jq -r 'select(.traceId=="<traceId>") | "\(.occurredAt) \(.eventType) \(.outcome)
   src/BankAgent.Api/bin/Debug/net10.0/audit/*.jsonl
 ```
 
-### 3.10 Khi có gì đó không chạy
+### 3.10 Xem prompt thật gửi lên model
 
-| Triệu chứng | Nguyên nhân | Xử lý |
-|---|---|---|
-| Log: `Không kết nối được MCP Server; chạy tiếp với tool cục bộ` | MCP Server chưa chạy | Quay lại bước 3.3. Agent vẫn chạy nhưng không có dữ liệu CRM — đúng thiết kế, nó phải nói rõ thay vì bịa |
-| Request treo rồi timeout | `Model:Endpoint` còn là placeholder; `ManagedIdentityCredential` đang thử IMDS | Điền endpoint thật, hoặc đặt tạm `Model:ApiKey` cho dev |
-| `401` ở mọi request | Thiếu header `X-Dev-*`, hoặc `AllowDevHeaders` chưa bật | Xem bước 3.4 |
-| App từ chối khởi động, log nhắc `FR-001` | `AllowDevHeaders: true` ngoài `Development` | Cố ý. Tắt cờ hoặc đặt `ASPNETCORE_ENVIRONMENT=Development` |
-| `knowledgeChunks: 0` | Checksum lệch hoặc thiếu thư mục `knowledge/` | Log nêu rõ chunk nào lệch. Sửa nội dung thì phải tính lại `checksum` |
-| `send_email` trả `PII_TOKEN_INVALID` | `bankassist-mcp` chưa có `/vault/resolve` (task T-16 bên đó) | Xem mục 5 |
-| `FORBIDDEN_PORTFOLIO` với khách hợp lệ | Khách chưa có trong `Authorization:CustomerPortfolioMap` | Fail closed có chủ đích. Thêm ánh xạ ở bước 3.4 |
-| `Address already in use` ở cổng 5080/5026 | Lần chạy trước còn tiến trình mồ côi | `./scripts/stop-all.sh` — nó dọn cả tiến trình không có pid file |
-| `run-all.sh` báo dịch vụ không phản hồi | Xem 20 dòng log nó in ra, hoặc `.run/agent.log` / `.run/mcp.log` | Thường là thiếu cấu hình ở bước 3.4 |
+Audit ở mục trên cố ý chỉ có digest. Khi cần biết **chính xác model nhận được gì** — system
+instruction, tool nào được khai báo, ngữ cảnh nối thêm ở vòng tool call thứ hai — bật cờ trong
+`appsettings.Development.json`:
+
+```jsonc
+"Model": {
+  "LogPrompts": true    // mặc định false; production PHẢI để false (SPEC §13.2)
+}
+```
+
+Prompt được ghi vào `.run/agent.log` ở mỗi vòng gọi model:
+
+```bash
+grep -n "PROMPT → LLM" .run/agent.log
+```
+
+```
+PROMPT → LLM · vòng 1 · model=gpt-5.6-luna · conv=conv-001 · trace=e9d73f77...
+--- SYSTEM (ChatOptions.Instructions) · 1038 ký tự · sha256=e47c44ec0245 ---
+Bạn là Bank CRM Agent hỗ trợ Relationship Manager.
+...
+--- TOOLS (7) ---
+get_customer, search_customers, search_product_knowledge, create_email_draft, ...
+--- MESSAGES (1) ---
+[1] user: Thông tin khách hàng CUS0003 và gợi ý sản phẩm phù hợp?
+```
+
+Ba điểm đáng chú ý khi đọc log này:
+
+- **Log được ghi ở lớp `IChatClient`**, không phải ở `MafAgentRunner` — xem
+  [PromptLoggingChatClient.cs](src/BankAgent.Agent/Middleware/PromptLoggingChatClient.cs). Runner
+  chỉ biết hằng số `BankAgentInstructions.System`, tức là thứ ta *định* gửi; payload thật đi qua
+  `FunctionInvokingChatClient` của MAF và được nối thêm sau mỗi tool call.
+- **Vòng 2 thường chỉ có một message** (tool result). Đó không phải mất ngữ cảnh: Responses API
+  giữ lịch sử ở phía server, mỗi vòng chỉ gửi phần chênh lệch. Log phản ánh đúng payload đi ra dây.
+- **`sha256` của system prompt** cho biết nhanh instruction có bị đổi giữa các vòng hay không.
+
+Log này chứa message thô của RM (PII guard chỉ mask kết quả tool và câu trả lời), nên khi bật cờ
+thì `.run/agent.log` phải được coi là dữ liệu nhạy cảm ngang transcript — cùng lý do
+`EnableSensitiveData = false` cho OpenTelemetry.
+
+### 3.11 Khi có gì đó không chạy
+
+| Triệu chứng                                                               | Nguyên nhân                                                                          | Xử lý                                                                                                                       |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Log:`Không kết nối được MCP Server; chạy tiếp với tool cục bộ` | MCP Server chưa chạy                                                                 | Quay lại bước 3.3. Agent vẫn chạy nhưng không có dữ liệu CRM — đúng thiết kế, nó phải nói rõ thay vì bịa |
+| Request treo rồi timeout                                                   | `Model:Endpoint` còn là placeholder; `ManagedIdentityCredential` đang thử IMDS | Điền endpoint thật, hoặc đặt tạm`Model:ApiKey` cho dev                                                               |
+| `401` ở mọi request                                                     | Thiếu header`X-Dev-*`, hoặc `AllowDevHeaders` chưa bật                         | Xem bước 3.4                                                                                                                |
+| App từ chối khởi động, log nhắc`FR-001`                             | `AllowDevHeaders: true` ngoài `Development`                                       | Cố ý. Tắt cờ hoặc đặt`ASPNETCORE_ENVIRONMENT=Development`                                                            |
+| `knowledgeChunks: 0`                                                      | Checksum lệch hoặc thiếu thư mục`knowledge/`                                    | Log nêu rõ chunk nào lệch. Sửa nội dung thì phải tính lại`checksum`                                               |
+| `send_email` trả `PII_TOKEN_INVALID`                                   | `bankassist-mcp` chưa có `/vault/resolve` (task T-16 bên đó)                  | Xem mục 5                                                                                                                    |
+| `FORBIDDEN_PORTFOLIO` với khách hợp lệ                                | Khách chưa có trong`Authorization:CustomerPortfolioMap`                           | Fail closed có chủ đích. Thêm ánh xạ ở bước 3.4                                                                     |
+| `Address already in use` ở cổng 5080/5026                               | Lần chạy trước còn tiến trình mồ côi                                          | `./scripts/stop-all.sh` — nó dọn cả tiến trình không có pid file                                                    |
+| `run-all.sh` báo dịch vụ không phản hồi                             | Xem 20 dòng log nó in ra, hoặc`.run/agent.log` / `.run/mcp.log`                 | Thường là thiếu cấu hình ở bước 3.4                                                                                  |
 
 ---
 
 ## 4. Trạng thái theo Phase của spec
 
-| Phase | Nội dung | Trạng thái |
-|---|---|---|
-| 0 | Solution, central package management, config, health, audit correlation | ✅ |
-| 1 | MCP read path | ✅ dùng `bankassist-mcp` sẵn có |
-| 2 | Agent/ReAct, session store, middleware, chat API | ✅ |
-| 3 | RAG + citation + insufficient evidence + injection test | ✅ |
-| 4 | PII guard phía host + host-only resolve client | ✅ |
-| 5 | Draft, payload hash, approval, idempotent write | ✅ |
-| 6 | Eval 20+ golden case, load/chaos test | ⬜ chưa làm |
-| — | Giao diện RM bằng Razor Pages | ✅ (auth production còn thiếu, xem §5) |
+| Phase | Nội dung                                                               | Trạng thái                              |
+| ----- | ----------------------------------------------------------------------- | ----------------------------------------- |
+| 0     | Solution, central package management, config, health, audit correlation | ✅                                        |
+| 1     | MCP read path                                                           | ✅ dùng`bankassist-mcp` sẵn có       |
+| 2     | Agent/ReAct, session store, middleware, chat API                        | ✅                                        |
+| 3     | RAG + citation + insufficient evidence + injection test                 | ✅                                        |
+| 4     | PII guard phía host + host-only resolve client                         | ✅                                        |
+| 5     | Draft, payload hash, approval, idempotent write                         | ✅                                        |
+| 6     | Eval 20+ golden case, load/chaos test                                   | ⬜ chưa làm                             |
+| —    | Giao diện RM bằng Razor Pages                                         | ✅ (auth production còn thiếu, xem §5) |
 
 ### Đã kiểm chứng bằng chạy thật
 
@@ -583,12 +626,12 @@ Phần giao diện, chạy thật trên trình duyệt:
 
 Ghi lại vì chúng không phải lỗi cấu hình hời hợt — mỗi lỗi chỉ lộ ra sau khi lỗi trước đã sửa:
 
-| # | Triệu chứng | Nguyên nhân thật | Sửa |
-|---|---|---|---|
-| 1 | `404` mọi lời gọi model | `AzureOpenAIClient.GetChatClient()` gọi Chat Completions cổ điển; resource chỉ phục vụ Responses API v1 | Chuyển sang `ResponsesClient` |
-| 2 | `MissingMethodException` lúc chạy | `Azure.AI.OpenAI` 2.9.0-beta.1 biên dịch cứng với `OpenAI` 2.9.1; `Microsoft.Extensions.AI.OpenAI` 10.9.0 lại ép `OpenAI` ≥2.12.0 — hai gói preview xung đột phiên bản transitive | Bỏ hẳn `Azure.AI.OpenAI`, dùng thẳng SDK OpenAI gốc + `BearerTokenPolicy` cho Managed Identity |
-| 3 | `400 Unsupported parameter: temperature` | `gpt-5.6-luna` là model dòng suy luận, từ chối `temperature` | `Temperature` thành `float?`, mặc định không gửi |
-| 4 | Mọi câu trả lời RAG bị `SECURITY_VIOLATION`; hội thoại không nhớ được lượt trước | (a) `documentId@version` trùng regex phát hiện email; (b) `AgentSession` serialize bằng `JsonSerializerOptions` chung, thiếu type resolver cho `ChatClientAgentSession` → ném lỗi mọi lượt, session không bao giờ lưu được | (a) Đổi `@` thành `::`; (b) dùng `AgentAbstractionsJsonUtilities.DefaultOptions` của chính MAF |
+| # | Triệu chứng                                                                                     | Nguyên nhân thật                                                                                                                                                                                                                                | Sửa                                                                                                      |
+| - | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 1 | `404` mọi lời gọi model                                                                      | `AzureOpenAIClient.GetChatClient()` gọi Chat Completions cổ điển; resource chỉ phục vụ Responses API v1                                                                                                                                   | Chuyển sang`ResponsesClient`                                                                           |
+| 2 | `MissingMethodException` lúc chạy                                                             | `Azure.AI.OpenAI` 2.9.0-beta.1 biên dịch cứng với `OpenAI` 2.9.1; `Microsoft.Extensions.AI.OpenAI` 10.9.0 lại ép `OpenAI` ≥2.12.0 — hai gói preview xung đột phiên bản transitive                                             | Bỏ hẳn`Azure.AI.OpenAI`, dùng thẳng SDK OpenAI gốc + `BearerTokenPolicy` cho Managed Identity    |
+| 3 | `400 Unsupported parameter: temperature`                                                        | `gpt-5.6-luna` là model dòng suy luận, từ chối `temperature`                                                                                                                                                                              | `Temperature` thành `float?`, mặc định không gửi                                                |
+| 4 | Mọi câu trả lời RAG bị`SECURITY_VIOLATION`; hội thoại không nhớ được lượt trước | (a)`documentId@version` trùng regex phát hiện email; (b) `AgentSession` serialize bằng `JsonSerializerOptions` chung, thiếu type resolver cho `ChatClientAgentSession` → ném lỗi mọi lượt, session không bao giờ lưu được | (a) Đổi`@` thành `::`; (b) dùng `AgentAbstractionsJsonUtilities.DefaultOptions` của chính MAF |
 
 Chi tiết: [ChatClientFactory.cs](src/BankAgent.Agent/ChatClientFactory.cs), [MafAgentRunner.cs](src/BankAgent.Agent/MafAgentRunner.cs), [Knowledge.cs](src/BankAgent.Contracts/Knowledge.cs).
 
@@ -672,20 +715,20 @@ dotnet test --filter FullyQualifiedName~AnswerPiiRenderer  # unmask câu trả l
 
 Ánh xạ sang golden case của spec §21.2:
 
-| Golden case | Test |
-|---|---|
-| 2, 4 — RM khác không thấy dữ liệu ngoài quyền, không lộ existence | `SecurityBoundaryTests` |
-| 5, 6, 7 — citation còn hiệu lực, loại chính sách hết hạn, abstain | `RagTests` |
-| 8 — prompt injection trong tài liệu bị coi là dữ liệu | `RagTests` |
-| 10 — send không approval → fail | `WriteWorkflowTests` |
-| 11 — approval bị sửa payload → fail | `ApprovalGateTests`, `WriteWorkflowTests` |
-| 12 — approval hết hạn → fail | cả hai |
-| 13 — retry cùng idempotency key → một tác động | `WriteWorkflowTests` |
-| 14 — token khác tenant → fail + audit | `ApprovalGateTests` |
-| 15, 16 — PII thô không lọt ra model/log | `SecurityBoundaryTests` |
-| — cô lập hội thoại giữa các RM ở tầng hiển thị | `TranscriptStoreTests` |
-| — unmask token cho RM, fail-safe khi vault từ chối | `AnswerPiiRendererTests` |
-| 19 — vòng tool vượt 3 → dừng an toàn | `ToolPolicyTests` + [ToolInvocationMiddleware.cs:56](src/BankAgent.Agent/Middleware/ToolInvocationMiddleware.cs#L56) |
+| Golden case                                                                 | Test                                                                                                                  |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 2, 4 — RM khác không thấy dữ liệu ngoài quyền, không lộ existence | `SecurityBoundaryTests`                                                                                             |
+| 5, 6, 7 — citation còn hiệu lực, loại chính sách hết hạn, abstain  | `RagTests`                                                                                                          |
+| 8 — prompt injection trong tài liệu bị coi là dữ liệu                | `RagTests`                                                                                                          |
+| 10 — send không approval → fail                                          | `WriteWorkflowTests`                                                                                                |
+| 11 — approval bị sửa payload → fail                                     | `ApprovalGateTests`, `WriteWorkflowTests`                                                                         |
+| 12 — approval hết hạn → fail                                            | cả hai                                                                                                               |
+| 13 — retry cùng idempotency key → một tác động                       | `WriteWorkflowTests`                                                                                                |
+| 14 — token khác tenant → fail + audit                                    | `ApprovalGateTests`                                                                                                 |
+| 15, 16 — PII thô không lọt ra model/log                                 | `SecurityBoundaryTests`                                                                                             |
+| — cô lập hội thoại giữa các RM ở tầng hiển thị                   | `TranscriptStoreTests`                                                                                              |
+| — unmask token cho RM, fail-safe khi vault từ chối                       | `AnswerPiiRendererTests`                                                                                            |
+| 19 — vòng tool vượt 3 → dừng an toàn                                 | `ToolPolicyTests` + [ToolInvocationMiddleware.cs:56](src/BankAgent.Agent/Middleware/ToolInvocationMiddleware.cs#L56) |
 
 Còn thiếu để đủ 20 case: 1, 3, 9, 17, 18, 20 — cần model thật hoặc test tích hợp (Phase 6).
 
@@ -693,18 +736,18 @@ Còn thiếu để đủ 20 case: 1, 3, 9, 17, 18, 20 — cần model thật ho�
 
 ## 7. Những chỗ cần thay trước production
 
-| Hạng mục | Hiện tại | Cần |
-|---|---|---|
-| Store (session, approval, draft, idempotency) | in-memory | Redis/SQL — nhiều instance là mất trạng thái |
-| Audit | file JSONL append-only | WORM store (SEC-008) |
-| `Authorization:CustomerPortfolioMap` | config tĩnh | truy vấn hệ thống phân quyền |
-| RAG | lexical scoring | hybrid keyword + vector (§10.3) |
-| Kênh gửi email/CRM | `LoggingEmailChannel` mô phỏng | tích hợp thật |
-| Đăng nhập giao diện | cookie dev, chỉ chạy ở `Development` | OpenID Connect + Entra ID (xem §5) |
-| Transcript hội thoại | in-memory | cùng store với session |
-| `Rag:ScoreThreshold` | 0.15 tạm đặt | hiệu chỉnh bằng eval — spec đánh dấu `[DECISION REQUIRED]` |
-| `POST /vault/resolve` ở `bankassist-mcp` | chưa cài (T-16, xác nhận `404`) | chặn cả `send_email` lẫn unmask câu trả lời cho RM (§5.3) |
-| `BankAgent:UnmaskAnswersForRm` | mặc định `true` | D-08/SEC-010 — cần security/compliance ngân hàng duyệt trước khi bật ở production |
+| Hạng mục                                    | Hiện tại                               | Cần                                                                                       |
+| --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Store (session, approval, draft, idempotency) | in-memory                                | Redis/SQL — nhiều instance là mất trạng thái                                         |
+| Audit                                         | file JSONL append-only                   | WORM store (SEC-008)                                                                       |
+| `Authorization:CustomerPortfolioMap`        | config tĩnh                             | truy vấn hệ thống phân quyền                                                          |
+| RAG                                           | lexical scoring                          | hybrid keyword + vector (§10.3)                                                           |
+| Kênh gửi email/CRM                          | `LoggingEmailChannel` mô phỏng       | tích hợp thật                                                                           |
+| Đăng nhập giao diện                       | cookie dev, chỉ chạy ở`Development` | OpenID Connect + Entra ID (xem §5)                                                        |
+| Transcript hội thoại                        | in-memory                                | cùng store với session                                                                   |
+| `Rag:ScoreThreshold`                        | 0.15 tạm đặt                          | hiệu chỉnh bằng eval — spec đánh dấu`[DECISION REQUIRED]`                         |
+| `POST /vault/resolve` ở `bankassist-mcp` | chưa cài (T-16, xác nhận`404`)     | chặn cả`send_email` lẫn unmask câu trả lời cho RM (§5.3)                          |
+| `BankAgent:UnmaskAnswersForRm`              | mặc định`true`                      | D-08/SEC-010 — cần security/compliance ngân hàng duyệt trước khi bật ở production |
 
 Các `[D-01]`…`[D-08]` ở spec §25 vẫn mở.
 
